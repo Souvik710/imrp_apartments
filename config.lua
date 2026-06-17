@@ -97,15 +97,15 @@ Config.Notification = {
 }
 
 -- Economy Settings
-Config.BankPayment = true
-Config.DefaultCurrency = 'cash'
+Config.BankPayment = true -- Force bank payment
+Config.DefaultCurrency = 'cash' -- Fallback currency if bank payment fails
 
 -- Performance Settings
-Config.UpdateInterval = 60000
-Config.MaxApartmentsPerPlayer = 5
+Config.UpdateInterval = 60000 -- Check expired apartments every minute
+Config.MaxApartmentsPerPlayer = 5 -- Maximum apartments per player
 
 -- Appearance System
-Config.AppearanceSystem = 'illenium-appearance'
+Config.AppearanceSystem = 'illenium-appearance' -- or 'fivem-appearance'
 Config.EnableWardrobe = true
 Config.WardrobeOutfitLimit = 20
 

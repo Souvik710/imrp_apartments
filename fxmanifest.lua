@@ -25,11 +25,10 @@ files {
 }
 
 dependencies {
+    'qb-core',
     'ox_lib',
     'oxmysql',
-    'ox_inventory',
-    'qbx_core',
-    'illenium-appearance'
+    'ox_inventory'
 }
 
 lua54 'yes'
