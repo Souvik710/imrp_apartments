@@ -1,79 +1,190 @@
-local Utils = {}
+-----------------------------------------------------------
+-- IMRP Apartments - Shared Utilities
+-- Author: Ragna | Immortal Roleplay
+-----------------------------------------------------------
 
-local DEFAULT_INTERIOR_Z = 100.0
-local DEFAULT_STASH_OFFSET = 0.5
-local DEFAULT_WARDROBE_OFFSET = 1.0
+IMRP = IMRP or {}
 
-local DEFAULT_BLIP = {
-    enabled = true,
-    sprite = 40,
-    scale = 0.7,
-    label = 'Apartment'
-}
+-----------------------------------------------------------
+-- Locale System
+-----------------------------------------------------------
+local Locales = {}
 
-local DEFAULT_APARTMENT = {
-    rental_days = 7,
-    stash_slots = 50,
-    stash_weight = 10000,
-}
-
---- Build all five location vectors from an entrance point.
---- Interior, stash, and wardrobe are placed at `interiorZ` (default 100.0)
---- with fixed x/y offsets; exit mirrors the entrance.
----@param entrance vector3
----@param interiorZ? number
----@return table locations
-function Utils.CreateLocations(entrance, interiorZ)
-    local iz = interiorZ or DEFAULT_INTERIOR_Z
-    return {
-        entrance = entrance,
-        interior = vector3(entrance.x, entrance.y, iz),
-        exit     = vector3(entrance.x, entrance.y, entrance.z),
-        stash    = vector3(entrance.x - DEFAULT_STASH_OFFSET, entrance.y - DEFAULT_STASH_OFFSET, iz),
-        wardrobe = vector3(entrance.x - DEFAULT_WARDROBE_OFFSET, entrance.y - DEFAULT_WARDROBE_OFFSET, iz),
-    }
-end
-
---- Create a blip configuration, merging overrides into defaults.
----@param overrides? table
----@return table blip
-function Utils.CreateBlip(overrides)
-    local blip = {}
-    for k, v in pairs(DEFAULT_BLIP) do
-        blip[k] = v
-    end
-    if overrides then
-        for k, v in pairs(overrides) do
-            blip[k] = v
+function IMRP.LoadLocale(lang)
+    local file = LoadResourceFile(GetCurrentResourceName(), ('locales/%s.lua'):format(lang or 'en'))
+    if file then
+        local fn = load(file)
+        if fn then
+            fn()
         end
     end
-    return blip
 end
 
---- Create a full apartment definition from minimal parameters.
---- `data` must contain `name`, `price`, and `entrance` (vector3).
---- Optional fields: `label`, `rental_days`, `rental_price`, `interiorZ`,
---- `stash_slots`, `stash_weight`, `blip` (table of overrides).
----@param data table
----@return table apartment
-function Utils.CreateApartment(data)
-    assert(data.name,     'CreateApartment: name is required')
-    assert(data.price,    'CreateApartment: price is required')
-    assert(data.entrance, 'CreateApartment: entrance is required')
+function IMRP.SetLocales(data)
+    Locales = data or {}
+end
 
-    local rentalPrice = data.rental_price or math.floor(data.price * 0.1)
+function IMRP.Locale(key, ...)
+    local str = Locales[key]
+    if not str then return key end
+    if ... then
+        return str:format(...)
+    end
+    return str
+end
+
+-----------------------------------------------------------
+-- Generate Unique Apartment ID
+-----------------------------------------------------------
+function IMRP.GenerateApartmentId(apartmentKey, bucketId)
+    return ('%s_%d'):format(apartmentKey, bucketId)
+end
+
+-----------------------------------------------------------
+-- Generate Stash ID
+-----------------------------------------------------------
+function IMRP.GenerateStashId(apartmentId)
+    return ('stash_%s'):format(apartmentId)
+end
+
+-----------------------------------------------------------
+-- Format Currency
+-----------------------------------------------------------
+function IMRP.FormatCurrency(amount)
+    if not amount then return '$0' end
+    local formatted = tostring(math.floor(amount))
+    local k
+    while true do
+        formatted, k = formatted:gsub('^(-?%d+)(%d%d%d)', '%1,%2')
+        if k == 0 then break end
+    end
+    return '$' .. formatted
+end
+
+-----------------------------------------------------------
+-- Format Date
+-----------------------------------------------------------
+function IMRP.FormatDate(timestamp)
+    if not timestamp then return 'N/A' end
+    return os.date('%Y-%m-%d %H:%M', timestamp)
+end
+
+-----------------------------------------------------------
+-- Calculate Days Remaining
+-----------------------------------------------------------
+function IMRP.DaysRemaining(expireTimestamp)
+    if not expireTimestamp then return 0 end
+    local now = os.time()
+    local diff = expireTimestamp - now
+    if diff <= 0 then return 0 end
+    return math.ceil(diff / 86400)
+end
+
+-----------------------------------------------------------
+-- Validate Apartment Key
+-----------------------------------------------------------
+function IMRP.IsValidApartment(key)
+    return Config.Apartments[key] ~= nil
+end
+
+-----------------------------------------------------------
+-- Get Apartment Type Data
+-----------------------------------------------------------
+function IMRP.GetApartmentTypeData(key)
+    local apartment = Config.Apartments[key]
+    if not apartment then return nil end
+    return Config.ApartmentTypes[apartment.type]
+end
+
+-----------------------------------------------------------
+-- Get Price for Apartment
+-----------------------------------------------------------
+function IMRP.GetApartmentPrice(key)
+    local typeData = IMRP.GetApartmentTypeData(key)
+    if not typeData then return 0 end
+    return typeData.price
+end
+
+-----------------------------------------------------------
+-- Get Rental Price for Apartment
+-----------------------------------------------------------
+function IMRP.GetRentalPrice(key)
+    local typeData = IMRP.GetApartmentTypeData(key)
+    if not typeData then return 0 end
+    return typeData.rental_price
+end
+
+-----------------------------------------------------------
+-- Deep Copy Table
+-----------------------------------------------------------
+function IMRP.DeepCopy(orig)
+    local copy = {}
+    for k, v in pairs(orig) do
+        if type(v) == 'table' then
+            copy[k] = IMRP.DeepCopy(v)
+        else
+            copy[k] = v
+        end
+    end
+    return copy
+end
+
+-----------------------------------------------------------
+-- Debug Print
+-----------------------------------------------------------
+Config.Debug = false
+
+function IMRP.Debug(...)
+    if Config.Debug then
+        print('[IMRP_APARTMENTS]', ...)
+    end
+end
+
+-----------------------------------------------------------
+-- Shared Config Builders
+-----------------------------------------------------------
+
+local DEFAULT_INTERIOR = {
+    ipl = nil,
+    offset = vector3(0.0, 0.0, 0.0),
+}
+
+--- Create an interior definition from a shell name.
+--- All interiors share `ipl = nil` and `offset = vec3(0,0,0)` by default;
+--- pass `overrides` to change those or add extra fields.
+---@param shell string
+---@param overrides? table
+---@return table interior
+function IMRP.CreateInterior(shell, overrides)
+    local interior = {
+        ipl    = DEFAULT_INTERIOR.ipl,
+        shell  = shell,
+        offset = DEFAULT_INTERIOR.offset,
+    }
+    if overrides then
+        for k, v in pairs(overrides) do
+            interior[k] = v
+        end
+    end
+    return interior
+end
+
+--- Create an apartment type definition with sensible defaults.
+--- Required: `label`, `price`. Optional fields fall back to defaults
+--- derived from Config.DefaultStashSlots / Config.DefaultStashWeight.
+---@param data table
+---@return table apartmentType
+function IMRP.CreateApartmentType(data)
+    assert(data.label, 'CreateApartmentType: label is required')
+    assert(data.price, 'CreateApartmentType: price is required')
 
     return {
-        name         = data.name,
-        label        = data.label or data.name,
+        label        = data.label,
         price        = data.price,
-        rental_days  = data.rental_days or DEFAULT_APARTMENT.rental_days,
-        rental_price = rentalPrice,
-        location     = Utils.CreateLocations(data.entrance, data.interiorZ),
-        stash_slots  = data.stash_slots or DEFAULT_APARTMENT.stash_slots,
-        stash_weight = data.stash_weight or DEFAULT_APARTMENT.stash_weight,
-        blip         = Utils.CreateBlip(data.blip),
+        rental_price = data.rental_price or math.floor(data.price * 0.2),
+        stash_slots  = data.stash_slots or (Config and Config.DefaultStashSlots or 75),
+        stash_weight = data.stash_weight or (Config and Config.DefaultStashWeight or 150000),
+        garage_slots = data.garage_slots or 1,
+        interior     = data.interior,
     }
 end
-
-return Utils
