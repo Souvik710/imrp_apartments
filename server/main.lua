@@ -7,6 +7,31 @@ local QBX = exports['qbx_core']
 local OwnedApartments = {}
 local NextBucketId = Config.BucketStart
 
+-- Rate limiting: track last action time per player per action type
+local RateLimits = {}
+
+--- Check if player is rate-limited for a given action
+--- @param citizenid string
+--- @param action string
+--- @param cooldownMs number Cooldown in milliseconds
+--- @return boolean true if rate-limited (deny), false if allowed
+local function IsRateLimited(citizenid, action, cooldownMs)
+    local key = citizenid .. ':' .. action
+    local now = GetGameTimer()
+    local last = RateLimits[key]
+    if last and (now - last) < cooldownMs then
+        return true
+    end
+    RateLimits[key] = now
+    return false
+end
+
+--- Validate purchaseType is an allowed value
+local VALID_PURCHASE_TYPES = { ['buy'] = true, ['rent'] = true, ['admin'] = true }
+local function IsValidPurchaseType(ptype)
+    return type(ptype) == 'string' and VALID_PURCHASE_TYPES[ptype] == true
+end
+
 -----------------------------------------------------------
 -- Initialize Database & Load Apartments
 -----------------------------------------------------------
@@ -182,6 +207,16 @@ lib.callback.register('imrp_apartments:server:buyApartment', function(source, ap
 
     local citizenid = player.PlayerData.citizenid
 
+    -- Rate limit: 1 purchase attempt per 5 seconds per player
+    if IsRateLimited(citizenid, 'buy', 5000) then
+        return { success = false, message = 'Please wait before trying again.' }
+    end
+
+    -- Validate purchaseType is an allowed value
+    if not IsValidPurchaseType(purchaseType) then
+        return { success = false, message = 'Invalid purchase type' }
+    end
+
     -- Validate apartment exists
     if not Config.Apartments[apartmentKey] then
         return { success = false, message = 'Invalid apartment' }
@@ -225,10 +260,16 @@ lib.callback.register('imrp_apartments:server:buyApartment', function(source, ap
     local expireDate = os.date('%Y-%m-%d %H:%M:%S', os.time() + (Config.ApartmentDuration * 86400))
     local purchaseDate = os.date('%Y-%m-%d %H:%M:%S')
 
-    -- Save to database
-    MySQL.insert('INSERT INTO apartments (citizenid, apartment_id, apartment_name, apartment_type, bucket_id, purchase_date, expire_date, purchase_type) VALUES (?, ?, ?, ?, ?, ?, ?, ?)', {
+    -- Save to database (use await to detect failure and refund)
+    local insertId = MySQL.insert.await('INSERT INTO apartments (citizenid, apartment_id, apartment_name, apartment_type, bucket_id, purchase_date, expire_date, purchase_type) VALUES (?, ?, ?, ?, ?, ?, ?, ?)', {
         citizenid, apartmentId, apartmentKey, Config.Apartments[apartmentKey].type, bucketId, purchaseDate, expireDate, purchaseType
     })
+
+    -- If DB insert failed, refund the player
+    if not insertId or insertId <= 0 then
+        player.Functions.AddMoney(moneyType, price, 'apartment-purchase-refund')
+        return { success = false, message = 'Purchase failed (database error). You have been refunded.' }
+    end
 
     -- Cache
     OwnedApartments[apartmentId] = {
@@ -262,6 +303,11 @@ lib.callback.register('imrp_apartments:server:enterApartment', function(source, 
     if not player then return { success = false, message = 'Player not found' } end
 
     local citizenid = player.PlayerData.citizenid
+
+    -- Validate apartment key exists in config
+    if type(apartmentKey) ~= 'string' or not Config.Apartments[apartmentKey] then
+        return { success = false, message = 'Invalid apartment' }
+    end
 
     -- Check access
     local hasAccess, apartmentId, aptData = HasAccessToApartment(citizenid, apartmentKey)
@@ -305,6 +351,11 @@ lib.callback.register('imrp_apartments:server:renewApartment', function(source, 
     if not player then return { success = false, message = 'Player not found' } end
 
     local citizenid = player.PlayerData.citizenid
+
+    -- Rate limit renewal attempts
+    if IsRateLimited(citizenid, 'renew', 5000) then
+        return { success = false, message = 'Please wait before trying again.' }
+    end
 
     -- Check ownership
     local isOwner, apartmentId = IsOwner(citizenid, apartmentKey)
@@ -355,6 +406,11 @@ lib.callback.register('imrp_apartments:server:sellApartment', function(source, a
     if not player then return { success = false, message = 'Player not found' } end
 
     local citizenid = player.PlayerData.citizenid
+
+    -- Rate limit sell attempts
+    if IsRateLimited(citizenid, 'sell', 5000) then
+        return { success = false, message = 'Please wait before trying again.' }
+    end
 
     -- Check ownership
     local isOwner, apartmentId = IsOwner(citizenid, apartmentKey)
@@ -469,12 +525,28 @@ lib.callback.register('imrp_apartments:server:giveKey', function(source, apartme
         return { success = false, message = IMRP.Locale('not_owner') }
     end
 
-    local targetPlayer = QBX:GetPlayer(tonumber(targetId))
+    -- Validate targetId is a number
+    targetId = tonumber(targetId)
+    if not targetId or targetId <= 0 then
+        return { success = false, message = IMRP.Locale('player_not_found') }
+    end
+
+    -- Validate keyType is an allowed value
+    local validKeyTypes = { ['permanent'] = true, ['temporary'] = true }
+    if keyType and not validKeyTypes[keyType] then
+        keyType = 'permanent'
+    end
+
+    local targetPlayer = QBX:GetPlayer(targetId)
     if not targetPlayer then
         return { success = false, message = IMRP.Locale('player_not_found') }
     end
 
+    -- Prevent giving key to yourself
     local targetCitizenId = targetPlayer.PlayerData.citizenid
+    if targetCitizenId == citizenid then
+        return { success = false, message = 'You already have access as the owner.' }
+    end
 
     -- Check if key already exists
     local existing = MySQL.scalar.await('SELECT COUNT(*) FROM apartment_keys WHERE apartment_id = ? AND citizenid = ?', { apartmentId, targetCitizenId })
@@ -690,8 +762,18 @@ RegisterNetEvent('imrp_apartments:server:logoutInApartment', function()
     local player = QBX:GetPlayer(src)
     if not player then return end
 
-    -- Reset bucket before logout
+    local citizenid = player.PlayerData.citizenid
+
+    -- Rate limit to prevent spam
+    if IsRateLimited(citizenid, 'logout', 10000) then return end
+
+    -- Verify player is actually in a non-zero bucket (i.e. inside an apartment)
     if Config.UseRoutingBuckets then
+        local currentBucket = GetPlayerRoutingBucket(src)
+        if currentBucket == 0 then
+            -- Player is not in an apartment instance; ignore
+            return
+        end
         SetPlayerRoutingBucket(src, 0)
     end
 

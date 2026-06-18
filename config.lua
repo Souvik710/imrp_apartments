@@ -57,6 +57,7 @@ Config.DefaultStashWeight = 150000
 -- Performance
 -----------------------------------------------------------
 Config.UpdateInterval = 60000
+Config.Debug = false -- NEVER enable in production; exposes internal state to console
 
 -----------------------------------------------------------
 -- Admin Permissions

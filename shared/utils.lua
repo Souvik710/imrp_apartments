@@ -131,8 +131,12 @@ end
 
 -----------------------------------------------------------
 -- Debug Print
+-- NOTE: Config.Debug should be set in config.lua or server-only.
+-- Default to false if not defined to prevent accidental exposure.
 -----------------------------------------------------------
-Config.Debug = false
+if Config.Debug == nil then
+    Config.Debug = false
+end
 
 function IMRP.Debug(...)
     if Config.Debug then
