@@ -1,551 +1,717 @@
--- Auto-detect framework
-local QBCore = nil
+-----------------------------------------------------------
+-- IMRP Apartments - Server Main
+-- Author: Ragna | Immortal Roleplay
+-----------------------------------------------------------
 
--- Try to detect the framework
-if GetResourceState('qb-core') == 'started' then
-    QBCore = exports['qb-core']:GetCoreObject()
-elseif GetResourceState('qbx_core') == 'started' then
-    QBCore = exports['qbx_core']:GetCoreObject()
-elseif GetResourceState('qbcore') == 'started' then
-    QBCore = exports['qbcore']:GetCoreObject()
-else
-    print('^1[imrp_apartments] ERROR: No supported framework found!^0')
-    print('^1Please ensure qb-core, qbx_core, or qbcore is installed and started.^0')
-end
+local QBX = exports['qbx_core']
+local OwnedApartments = {}
+local NextBucketId = Config.BucketStart
 
-local utils = require('shared.utils')
-
--- Initialize database on startup
+-----------------------------------------------------------
+-- Initialize Database & Load Apartments
+-----------------------------------------------------------
 CreateThread(function()
-    MySQL.Async.execute([[
-        CREATE TABLE IF NOT EXISTS player_apartments (
-            id INT AUTO_INCREMENT PRIMARY KEY,
-            citizenid VARCHAR(50) NOT NULL,
-            apartment VARCHAR(50) NOT NULL,
-            roomid VARCHAR(100) NOT NULL,
-            purchase_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            expire_date TIMESTAMP NOT NULL,
-            UNIQUE KEY unique_apartment (citizenid, apartment),
-            INDEX idx_citizenid (citizenid),
-            INDEX idx_expire_date (expire_date)
-        )
-    ]])
+    MySQL.ready(function()
+        -- Create tables if they don't exist
+        MySQL.query([[
+            CREATE TABLE IF NOT EXISTS `apartments` (
+                `id` INT AUTO_INCREMENT PRIMARY KEY,
+                `citizenid` VARCHAR(50) NOT NULL,
+                `apartment_id` VARCHAR(100) NOT NULL UNIQUE,
+                `apartment_name` VARCHAR(100) NOT NULL,
+                `apartment_type` VARCHAR(50) NOT NULL,
+                `bucket_id` INT NOT NULL,
+                `purchase_date` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                `expire_date` DATETIME NOT NULL,
+                `purchase_type` VARCHAR(20) NOT NULL DEFAULT 'buy',
+                INDEX `idx_citizenid` (`citizenid`),
+                INDEX `idx_apartment_name` (`apartment_name`),
+                INDEX `idx_expire_date` (`expire_date`)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+        ]])
+
+        MySQL.query([[
+            CREATE TABLE IF NOT EXISTS `apartment_keys` (
+                `id` INT AUTO_INCREMENT PRIMARY KEY,
+                `apartment_id` VARCHAR(100) NOT NULL,
+                `citizenid` VARCHAR(50) NOT NULL,
+                `key_type` VARCHAR(20) NOT NULL DEFAULT 'permanent',
+                `granted_date` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                INDEX `idx_apartment_id` (`apartment_id`),
+                INDEX `idx_citizenid` (`citizenid`),
+                UNIQUE KEY `unique_key` (`apartment_id`, `citizenid`)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+        ]])
+
+        MySQL.query([[
+            CREATE TABLE IF NOT EXISTS `apartment_guests` (
+                `id` INT AUTO_INCREMENT PRIMARY KEY,
+                `apartment_id` VARCHAR(100) NOT NULL,
+                `citizenid` VARCHAR(50) NOT NULL,
+                `invited_date` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                INDEX `idx_apartment_id` (`apartment_id`),
+                INDEX `idx_citizenid` (`citizenid`),
+                UNIQUE KEY `unique_guest` (`apartment_id`, `citizenid`)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+        ]])
+
+        MySQL.query([[
+            CREATE TABLE IF NOT EXISTS `apartment_logs` (
+                `id` INT AUTO_INCREMENT PRIMARY KEY,
+                `citizenid` VARCHAR(50) NOT NULL,
+                `apartment_id` VARCHAR(100) DEFAULT NULL,
+                `action` VARCHAR(100) NOT NULL,
+                `details` TEXT DEFAULT NULL,
+                `date` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                INDEX `idx_citizenid` (`citizenid`),
+                INDEX `idx_date` (`date`)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+        ]])
+
+        -- Load existing apartments
+        local apartments = MySQL.query.await('SELECT * FROM apartments WHERE expire_date > NOW()')
+        if apartments then
+            for _, apt in ipairs(apartments) do
+                OwnedApartments[apt.apartment_id] = {
+                    citizenid = apt.citizenid,
+                    apartment_name = apt.apartment_name,
+                    apartment_type = apt.apartment_type,
+                    bucket_id = apt.bucket_id,
+                    purchase_date = apt.purchase_date,
+                    expire_date = apt.expire_date,
+                    purchase_type = apt.purchase_type
+                }
+                if apt.bucket_id >= NextBucketId then
+                    NextBucketId = apt.bucket_id + 1
+                end
+            end
+        end
+
+        IMRP.Debug(('Loaded %d apartments'):format(CountTable(OwnedApartments)))
+    end)
 end)
 
--- Get player function
-local function GetPlayer(source)
-    if not source then return nil end
-    if QBCore and QBCore.Functions then
-        return QBCore.Functions.GetPlayer(source)
-    end
-    return nil
+-----------------------------------------------------------
+-- Utility Functions
+-----------------------------------------------------------
+function CountTable(t)
+    local count = 0
+    for _ in pairs(t) do count = count + 1 end
+    return count
 end
 
--- Get player by citizenid
-local function GetPlayerByCitizenId(citizenid)
-    if not citizenid then return nil end
-    if QBCore and QBCore.Functions then
-        return QBCore.Functions.GetPlayerByCitizenId(citizenid)
-    end
-    return nil
+function GetNextBucketId()
+    local id = NextBucketId
+    NextBucketId = NextBucketId + 1
+    return id
 end
 
--- Safe database query wrapper
-local function SafeFetchAll(query, params)
-    local results = MySQL.Async.fetchAll(query, params or {})
-    return results or {}
-end
-
-local function SafeFetchSingle(query, params)
-    local result = MySQL.Async.fetchSingle(query, params or {})
-    return result or nil
-end
-
--- Check ownership
-lib.callback.register('imrp_apartments:CheckOwnership', function(source, apartment_id)
-    local player = GetPlayer(source)
-    if not player then 
-        print(string.format('[imrp_apartments] Player not found for source: %s', source))
-        return false 
-    end
-    
-    local citizenid = player.PlayerData.citizenid
-    if not citizenid then return false end
-    
-    local result = SafeFetchSingle('SELECT * FROM player_apartments WHERE citizenid = ? AND apartment = ? AND expire_date > NOW()', {
-        citizenid, apartment_id
-    })
-    
-    return result ~= nil
-end)
-
--- Purchase apartment
-lib.callback.register('imrp_apartments:PurchaseApartment', function(source, apartment_id)
-    local player = GetPlayer(source)
-    if not player then 
-        return false, 'Player not found' 
-    end
-    
-    local apartment = Config.Apartments[apartment_id]
-    if not apartment then 
-        return false, 'Apartment not found' 
-    end
-    
-    local citizenid = player.PlayerData.citizenid
-    if not citizenid then 
-        return false, 'Citizen ID not found' 
-    end
-    
-    -- Check if player already owns this apartment
-    local existing = SafeFetchSingle('SELECT * FROM player_apartments WHERE citizenid = ? AND apartment = ?', {
-        citizenid, apartment_id
-    })
-    
-    if existing then
-        if existing.expire_date and existing.expire_date > os.time() then
-            return false, 'You already own this apartment'
-        else
-            MySQL.Async.execute('DELETE FROM player_apartments WHERE id = ?', {existing.id})
+function GetPlayerApartments(citizenid)
+    local apartments = {}
+    for id, data in pairs(OwnedApartments) do
+        if data.citizenid == citizenid then
+            apartments[id] = data
         end
     end
-    
-    -- Check if player has enough money
-    local balance = player.Functions.GetMoney('bank')
-    if balance < apartment.price then
-        return false, string.format('Insufficient funds. Required: $%s', FormatNumber(apartment.price))
+    return apartments
+end
+
+function GetPlayerApartmentCount(citizenid)
+    local count = 0
+    for _, data in pairs(OwnedApartments) do
+        if data.citizenid == citizenid then
+            count = count + 1
+        end
     end
-    
-    -- Process payment
-    local paymentSuccess = player.Functions.RemoveMoney('bank', apartment.price)
-    if not paymentSuccess then
-        return false, 'Payment failed'
+    return count
+end
+
+function HasAccessToApartment(citizenid, apartmentKey)
+    -- Check ownership
+    for id, data in pairs(OwnedApartments) do
+        if data.citizenid == citizenid and data.apartment_name == apartmentKey then
+            return true, id, data
+        end
     end
-    
-    -- Generate room ID
-    local roomid = utils.GenerateRoomID(citizenid, apartment_id)
-    
+
+    -- Check keys
+    for id, data in pairs(OwnedApartments) do
+        if data.apartment_name == apartmentKey then
+            local hasKey = MySQL.scalar.await('SELECT COUNT(*) FROM apartment_keys WHERE apartment_id = ? AND citizenid = ?', { id, citizenid })
+            if hasKey and hasKey > 0 then
+                return true, id, data
+            end
+        end
+    end
+
+    -- Check guest access
+    for id, data in pairs(OwnedApartments) do
+        if data.apartment_name == apartmentKey then
+            local isGuest = MySQL.scalar.await('SELECT COUNT(*) FROM apartment_guests WHERE apartment_id = ? AND citizenid = ?', { id, citizenid })
+            if isGuest and isGuest > 0 then
+                return true, id, data
+            end
+        end
+    end
+
+    return false, nil, nil
+end
+
+function IsOwner(citizenid, apartmentKey)
+    for id, data in pairs(OwnedApartments) do
+        if data.citizenid == citizenid and data.apartment_name == apartmentKey then
+            return true, id
+        end
+    end
+    return false, nil
+end
+
+function LogAction(citizenid, apartmentId, action, details)
+    MySQL.insert('INSERT INTO apartment_logs (citizenid, apartment_id, action, details) VALUES (?, ?, ?, ?)', {
+        citizenid, apartmentId, action, details
+    })
+end
+
+-----------------------------------------------------------
+-- Buy / Rent Apartment
+-----------------------------------------------------------
+lib.callback.register('imrp_apartments:server:buyApartment', function(source, apartmentKey, purchaseType)
+    local src = source
+    local player = QBX:GetPlayer(src)
+    if not player then return { success = false, message = 'Player not found' } end
+
+    local citizenid = player.PlayerData.citizenid
+
+    -- Validate apartment exists
+    if not Config.Apartments[apartmentKey] then
+        return { success = false, message = 'Invalid apartment' }
+    end
+
+    -- Check max apartments
+    if GetPlayerApartmentCount(citizenid) >= Config.MaxApartments then
+        return { success = false, message = IMRP.Locale('max_apartments_reached') }
+    end
+
+    -- Check if already owns this apartment
+    local isOwner, _ = IsOwner(citizenid, apartmentKey)
+    if isOwner then
+        return { success = false, message = IMRP.Locale('already_own_apartment') }
+    end
+
+    -- Get price
+    local typeData = IMRP.GetApartmentTypeData(apartmentKey)
+    if not typeData then
+        return { success = false, message = 'Invalid apartment type' }
+    end
+
+    local price = purchaseType == 'rent' and typeData.rental_price or typeData.price
+
+    -- Check money
+    local moneyType = Config.BankPayment and 'bank' or 'cash'
+    local playerMoney = player.PlayerData.money[moneyType] or 0
+
+    if playerMoney < price then
+        return { success = false, message = IMRP.Locale('not_enough_money') }
+    end
+
+    -- Deduct money
+    player.Functions.RemoveMoney(moneyType, price, 'apartment-purchase')
+
+    -- Generate bucket
+    local bucketId = GetNextBucketId()
+    local apartmentId = IMRP.GenerateApartmentId(apartmentKey, bucketId)
+
     -- Calculate expire date
-    local expire_date = os.time() + (apartment.rental_days * 86400)
-    
+    local expireDate = os.date('%Y-%m-%d %H:%M:%S', os.time() + (Config.ApartmentDuration * 86400))
+    local purchaseDate = os.date('%Y-%m-%d %H:%M:%S')
+
     -- Save to database
-    local success = MySQL.Async.execute([[
-        INSERT INTO player_apartments (citizenid, apartment, roomid, expire_date) 
-        VALUES (?, ?, ?, FROM_UNIXTIME(?))
-    ]], {citizenid, apartment_id, roomid, expire_date})
-    
-    if success then
-        -- Create stash
-        local stash_id = 'apartment_stash_' .. roomid
-        exports.ox_inventory:RegisterStash(stash_id, apartment.label .. ' Stash', apartment.stash_slots, apartment.stash_weight)
-        
-        print(string.format('[imrp_apartments] Player %s purchased apartment %s for $%s', player.PlayerData.name or 'Unknown', apartment_id, apartment.price))
-        
-        return true, 'Apartment purchased successfully!'
-    else
-        -- Refund money if database insert fails
-        player.Functions.AddMoney('bank', apartment.price)
-        return false, 'Database error occurred'
-    end
+    MySQL.insert('INSERT INTO apartments (citizenid, apartment_id, apartment_name, apartment_type, bucket_id, purchase_date, expire_date, purchase_type) VALUES (?, ?, ?, ?, ?, ?, ?, ?)', {
+        citizenid, apartmentId, apartmentKey, Config.Apartments[apartmentKey].type, bucketId, purchaseDate, expireDate, purchaseType
+    })
+
+    -- Cache
+    OwnedApartments[apartmentId] = {
+        citizenid = citizenid,
+        apartment_name = apartmentKey,
+        apartment_type = Config.Apartments[apartmentKey].type,
+        bucket_id = bucketId,
+        purchase_date = purchaseDate,
+        expire_date = expireDate,
+        purchase_type = purchaseType
+    }
+
+    -- Register stash
+    local stashId = IMRP.GenerateStashId(apartmentId)
+    exports.ox_inventory:RegisterStash(stashId, ('%s Stash'):format(Config.Apartments[apartmentKey].label), typeData.stash_slots, typeData.stash_weight)
+
+    -- Log
+    LogAction(citizenid, apartmentId, 'purchase', ('Type: %s | Price: %d | Method: %s'):format(purchaseType, price, moneyType))
+
+    IMRP.Debug(('Player %s purchased %s (ID: %s, Bucket: %d)'):format(citizenid, apartmentKey, apartmentId, bucketId))
+
+    return { success = true, apartment_id = apartmentId, bucket_id = bucketId }
 end)
 
--- Open stash
-lib.callback.register('imrp_apartments:OpenStash', function(source, apartment_id)
-    local player = GetPlayer(source)
-    if not player then 
-        return false 
-    end
-    
+-----------------------------------------------------------
+-- Enter Apartment
+-----------------------------------------------------------
+lib.callback.register('imrp_apartments:server:enterApartment', function(source, apartmentKey)
+    local src = source
+    local player = QBX:GetPlayer(src)
+    if not player then return { success = false, message = 'Player not found' } end
+
     local citizenid = player.PlayerData.citizenid
-    if not citizenid then return false end
-    
-    -- Verify ownership
-    local apartment_data = SafeFetchSingle('SELECT * FROM player_apartments WHERE citizenid = ? AND apartment = ? AND expire_date > NOW()', {
-        citizenid, apartment_id
-    })
-    
-    if not apartment_data then
-        return false
+
+    -- Check access
+    local hasAccess, apartmentId, aptData = HasAccessToApartment(citizenid, apartmentKey)
+    if not hasAccess then
+        return { success = false, message = IMRP.Locale('no_access') }
     end
-    
-    local stash_id = 'apartment_stash_' .. apartment_data.roomid
-    exports.ox_inventory:OpenInventory(source, stash_id)
-    return true
+
+    -- Set routing bucket
+    if Config.UseRoutingBuckets then
+        SetPlayerRoutingBucket(src, aptData.bucket_id)
+        SetRoutingBucketPopulationEnabled(aptData.bucket_id, Config.BucketPopulation)
+        SetRoutingBucketEntityLockdownMode(aptData.bucket_id, Config.BucketLockdown)
+    end
+
+    -- Log
+    LogAction(citizenid, apartmentId, 'enter', nil)
+
+    return { success = true, apartment_id = apartmentId, bucket_id = aptData.bucket_id }
 end)
 
--- Renew apartment
-lib.callback.register('imrp_apartments:RenewApartment', function(source, apartment_id)
-    local player = GetPlayer(source)
-    if not player then 
-        return false, 'Player not found' 
+-----------------------------------------------------------
+-- Exit Apartment
+-----------------------------------------------------------
+lib.callback.register('imrp_apartments:server:exitApartment', function(source)
+    local src = source
+
+    -- Reset routing bucket to 0
+    if Config.UseRoutingBuckets then
+        SetPlayerRoutingBucket(src, 0)
     end
-    
-    local citizenid = player.PlayerData.citizenid
-    if not citizenid then 
-        return false, 'Citizen ID not found' 
-    end
-    
-    -- Get existing apartment
-    local apartment_data = SafeFetchSingle('SELECT * FROM player_apartments WHERE citizenid = ? AND apartment = ? AND expire_date > NOW()', {
-        citizenid, apartment_id
-    })
-    
-    if not apartment_data then
-        return false, 'You do not own this apartment or it has expired'
-    end
-    
-    local apartment = Config.Apartments[apartment_id]
-    if not apartment then
-        return false, 'Apartment configuration not found'
-    end
-    
-    -- Check if player has enough money
-    local balance = player.Functions.GetMoney('bank')
-    if balance < apartment.rental_price then
-        return false, string.format('Insufficient funds. Required: $%s', FormatNumber(apartment.rental_price))
-    end
-    
-    -- Process payment
-    local paymentSuccess = player.Functions.RemoveMoney('bank', apartment.rental_price)
-    if not paymentSuccess then
-        return false, 'Payment failed'
-    end
-    
-    -- Update expiration date
-    local new_expire_date = os.time() + (apartment.rental_days * 86400)
-    local success = MySQL.Async.execute('UPDATE player_apartments SET expire_date = FROM_UNIXTIME(?) WHERE id = ?', {
-        new_expire_date, apartment_data.id
-    })
-    
-    if success then
-        return true, 'Apartment renewed successfully!'
-    else
-        -- Refund money if update fails
-        player.Functions.AddMoney('bank', apartment.rental_price)
-        return false, 'Database error occurred'
-    end
+
+    return { success = true }
 end)
 
--- Get my apartments
-lib.callback.register('imrp_apartments:GetMyApartments', function(source)
-    local player = GetPlayer(source)
-    if not player then 
-        return {} 
-    end
-    
+-----------------------------------------------------------
+-- Renew Apartment
+-----------------------------------------------------------
+lib.callback.register('imrp_apartments:server:renewApartment', function(source, apartmentKey)
+    local src = source
+    local player = QBX:GetPlayer(src)
+    if not player then return { success = false, message = 'Player not found' } end
+
     local citizenid = player.PlayerData.citizenid
-    if not citizenid then return {} end
-    
-    local results = SafeFetchAll('SELECT * FROM player_apartments WHERE citizenid = ? AND expire_date > NOW()', {
-        citizenid
-    })
-    
-    return results
+
+    -- Check ownership
+    local isOwner, apartmentId = IsOwner(citizenid, apartmentKey)
+    if not isOwner then
+        return { success = false, message = IMRP.Locale('not_owner') }
+    end
+
+    -- Get renewal price
+    local typeData = IMRP.GetApartmentTypeData(apartmentKey)
+    if not typeData then
+        return { success = false, message = 'Invalid apartment type' }
+    end
+
+    local renewPrice = typeData.rental_price
+
+    -- Check money
+    local moneyType = Config.BankPayment and 'bank' or 'cash'
+    local playerMoney = player.PlayerData.money[moneyType] or 0
+
+    if playerMoney < renewPrice then
+        return { success = false, message = IMRP.Locale('not_enough_money') }
+    end
+
+    -- Deduct money
+    player.Functions.RemoveMoney(moneyType, renewPrice, 'apartment-renewal')
+
+    -- Extend expiry
+    local aptData = OwnedApartments[apartmentId]
+    local currentExpire = aptData.expire_date
+    local newExpireTimestamp = os.time() + (Config.ApartmentDuration * 86400)
+    local newExpireDate = os.date('%Y-%m-%d %H:%M:%S', newExpireTimestamp)
+
+    MySQL.update('UPDATE apartments SET expire_date = ? WHERE apartment_id = ?', { newExpireDate, apartmentId })
+    OwnedApartments[apartmentId].expire_date = newExpireDate
+
+    -- Log
+    LogAction(citizenid, apartmentId, 'renew', ('Price: %d | New Expire: %s'):format(renewPrice, newExpireDate))
+
+    return { success = true }
 end)
 
--- Get apartment info
-lib.callback.register('imrp_apartments:GetApartmentInfo', function(source, apartment_id)
-    local player = GetPlayer(source)
-    if not player then 
-        return nil 
-    end
-    
+-----------------------------------------------------------
+-- Sell Apartment
+-----------------------------------------------------------
+lib.callback.register('imrp_apartments:server:sellApartment', function(source, apartmentKey)
+    local src = source
+    local player = QBX:GetPlayer(src)
+    if not player then return { success = false, message = 'Player not found' } end
+
     local citizenid = player.PlayerData.citizenid
-    if not citizenid then return nil end
-    
-    local result = SafeFetchSingle('SELECT * FROM player_apartments WHERE citizenid = ? AND apartment = ? AND expire_date > NOW()', {
-        citizenid, apartment_id
+
+    -- Check ownership
+    local isOwner, apartmentId = IsOwner(citizenid, apartmentKey)
+    if not isOwner then
+        return { success = false, message = IMRP.Locale('not_owner') }
+    end
+
+    -- Calculate refund
+    local typeData = IMRP.GetApartmentTypeData(apartmentKey)
+    if not typeData then
+        return { success = false, message = 'Invalid apartment type' }
+    end
+
+    local refund = math.floor(typeData.price * Config.SellRefundPercent / 100)
+
+    -- Give refund
+    local moneyType = Config.BankPayment and 'bank' or 'cash'
+    player.Functions.AddMoney(moneyType, refund, 'apartment-sell')
+
+    -- Clean up
+    CleanupApartment(apartmentId)
+
+    -- Log
+    LogAction(citizenid, apartmentId, 'sell', ('Refund: %d'):format(refund))
+
+    return { success = true }
+end)
+
+-----------------------------------------------------------
+-- Cleanup Apartment (remove from DB + cache)
+-----------------------------------------------------------
+function CleanupApartment(apartmentId)
+    -- Remove from database
+    MySQL.query('DELETE FROM apartments WHERE apartment_id = ?', { apartmentId })
+    MySQL.query('DELETE FROM apartment_keys WHERE apartment_id = ?', { apartmentId })
+    MySQL.query('DELETE FROM apartment_guests WHERE apartment_id = ?', { apartmentId })
+
+    -- Clear stash if configured
+    if Config.ClearStashOnExpire then
+        local stashId = IMRP.GenerateStashId(apartmentId)
+        exports.ox_inventory:ClearInventory(stashId)
+    end
+
+    -- Remove from cache
+    OwnedApartments[apartmentId] = nil
+end
+
+-----------------------------------------------------------
+-- Get Apartment Info
+-----------------------------------------------------------
+lib.callback.register('imrp_apartments:server:getApartmentInfo', function(source, apartmentKey)
+    local src = source
+    local player = QBX:GetPlayer(src)
+    if not player then return nil end
+
+    local citizenid = player.PlayerData.citizenid
+    local isOwner, apartmentId = IsOwner(citizenid, apartmentKey)
+    if not isOwner then return nil end
+
+    local aptData = OwnedApartments[apartmentId]
+    if not aptData then return nil end
+
+    local keysCount = MySQL.scalar.await('SELECT COUNT(*) FROM apartment_keys WHERE apartment_id = ?', { apartmentId }) or 0
+    local guestsCount = MySQL.scalar.await('SELECT COUNT(*) FROM apartment_guests WHERE apartment_id = ?', { apartmentId }) or 0
+
+    return {
+        purchase_date = aptData.purchase_date,
+        expire_date = aptData.expire_date,
+        days_remaining = IMRP.DaysRemaining(aptData.expire_date),
+        keys_count = keysCount,
+        guests_count = guestsCount
+    }
+end)
+
+-----------------------------------------------------------
+-- Key System
+-----------------------------------------------------------
+lib.callback.register('imrp_apartments:server:getKeys', function(source, apartmentKey)
+    local src = source
+    local player = QBX:GetPlayer(src)
+    if not player then return nil end
+
+    local citizenid = player.PlayerData.citizenid
+    local isOwner, apartmentId = IsOwner(citizenid, apartmentKey)
+    if not isOwner then return nil end
+
+    local keys = MySQL.query.await('SELECT ak.citizenid, ak.key_type, ak.granted_date FROM apartment_keys ak WHERE ak.apartment_id = ?', { apartmentId })
+    if not keys then return {} end
+
+    -- Enrich with player names
+    for i, key in ipairs(keys) do
+        local targetPlayer = MySQL.single.await('SELECT JSON_EXTRACT(charinfo, "$.firstname") as firstname, JSON_EXTRACT(charinfo, "$.lastname") as lastname FROM players WHERE citizenid = ?', { key.citizenid })
+        if targetPlayer then
+            keys[i].name = ('%s %s'):format(
+                targetPlayer.firstname and targetPlayer.firstname:gsub('"', '') or 'Unknown',
+                targetPlayer.lastname and targetPlayer.lastname:gsub('"', '') or ''
+            )
+        end
+    end
+
+    return keys
+end)
+
+lib.callback.register('imrp_apartments:server:giveKey', function(source, apartmentKey, targetId, keyType)
+    local src = source
+    local player = QBX:GetPlayer(src)
+    if not player then return { success = false } end
+
+    local citizenid = player.PlayerData.citizenid
+    local isOwner, apartmentId = IsOwner(citizenid, apartmentKey)
+    if not isOwner then
+        return { success = false, message = IMRP.Locale('not_owner') }
+    end
+
+    local targetPlayer = QBX:GetPlayer(tonumber(targetId))
+    if not targetPlayer then
+        return { success = false, message = IMRP.Locale('player_not_found') }
+    end
+
+    local targetCitizenId = targetPlayer.PlayerData.citizenid
+
+    -- Check if key already exists
+    local existing = MySQL.scalar.await('SELECT COUNT(*) FROM apartment_keys WHERE apartment_id = ? AND citizenid = ?', { apartmentId, targetCitizenId })
+    if existing and existing > 0 then
+        return { success = false, message = IMRP.Locale('key_already_exists') }
+    end
+
+    MySQL.insert('INSERT INTO apartment_keys (apartment_id, citizenid, key_type) VALUES (?, ?, ?)', {
+        apartmentId, targetCitizenId, keyType or 'permanent'
     })
-    
+
+    LogAction(citizenid, apartmentId, 'give_key', ('To: %s | Type: %s'):format(targetCitizenId, keyType))
+
+    return { success = true }
+end)
+
+lib.callback.register('imrp_apartments:server:duplicateKey', function(source, apartmentKey, targetId)
+    return lib.callback.await('imrp_apartments:server:giveKey', source, apartmentKey, targetId, 'permanent')
+end)
+
+lib.callback.register('imrp_apartments:server:removeKey', function(source, apartmentKey, targetCitizenId)
+    local src = source
+    local player = QBX:GetPlayer(src)
+    if not player then return { success = false } end
+
+    local citizenid = player.PlayerData.citizenid
+    local isOwner, apartmentId = IsOwner(citizenid, apartmentKey)
+    if not isOwner then
+        return { success = false, message = IMRP.Locale('not_owner') }
+    end
+
+    MySQL.query('DELETE FROM apartment_keys WHERE apartment_id = ? AND citizenid = ?', { apartmentId, targetCitizenId })
+
+    LogAction(citizenid, apartmentId, 'remove_key', ('From: %s'):format(targetCitizenId))
+
+    return { success = true }
+end)
+
+-----------------------------------------------------------
+-- Guest System
+-----------------------------------------------------------
+lib.callback.register('imrp_apartments:server:inviteGuest', function(source, apartmentKey, targetId)
+    local src = source
+    local player = QBX:GetPlayer(src)
+    if not player then return { success = false } end
+
+    local citizenid = player.PlayerData.citizenid
+    local isOwner, apartmentId = IsOwner(citizenid, apartmentKey)
+    if not isOwner then
+        return { success = false, message = IMRP.Locale('not_owner') }
+    end
+
+    local targetPlayer = QBX:GetPlayer(tonumber(targetId))
+    if not targetPlayer then
+        return { success = false, message = IMRP.Locale('player_not_found') }
+    end
+
+    local targetCitizenId = targetPlayer.PlayerData.citizenid
+
+    -- Check if already a guest
+    local existing = MySQL.scalar.await('SELECT COUNT(*) FROM apartment_guests WHERE apartment_id = ? AND citizenid = ?', { apartmentId, targetCitizenId })
+    if existing and existing > 0 then
+        return { success = false, message = IMRP.Locale('already_guest') }
+    end
+
+    MySQL.insert('INSERT INTO apartment_guests (apartment_id, citizenid) VALUES (?, ?)', {
+        apartmentId, targetCitizenId
+    })
+
+    LogAction(citizenid, apartmentId, 'invite_guest', ('Guest: %s'):format(targetCitizenId))
+
+    -- Notify guest
+    TriggerClientEvent('ox_lib:notify', targetPlayer.PlayerData.source, {
+        title = 'Apartments',
+        description = IMRP.Locale('invited_to_apartment'),
+        type = 'info',
+        position = Config.Notification.position
+    })
+
+    return { success = true }
+end)
+
+lib.callback.register('imrp_apartments:server:getGuests', function(source, apartmentKey)
+    local src = source
+    local player = QBX:GetPlayer(src)
+    if not player then return nil end
+
+    local citizenid = player.PlayerData.citizenid
+    local isOwner, apartmentId = IsOwner(citizenid, apartmentKey)
+    if not isOwner then return nil end
+
+    local guests = MySQL.query.await('SELECT citizenid FROM apartment_guests WHERE apartment_id = ?', { apartmentId })
+    if not guests then return {} end
+
+    for i, guest in ipairs(guests) do
+        local targetPlayer = MySQL.single.await('SELECT JSON_EXTRACT(charinfo, "$.firstname") as firstname, JSON_EXTRACT(charinfo, "$.lastname") as lastname FROM players WHERE citizenid = ?', { guest.citizenid })
+        if targetPlayer then
+            guests[i].name = ('%s %s'):format(
+                targetPlayer.firstname and targetPlayer.firstname:gsub('"', '') or 'Unknown',
+                targetPlayer.lastname and targetPlayer.lastname:gsub('"', '') or ''
+            )
+        end
+    end
+
+    return guests
+end)
+
+lib.callback.register('imrp_apartments:server:removeGuest', function(source, apartmentKey, targetCitizenId)
+    local src = source
+    local player = QBX:GetPlayer(src)
+    if not player then return { success = false } end
+
+    local citizenid = player.PlayerData.citizenid
+    local isOwner, apartmentId = IsOwner(citizenid, apartmentKey)
+    if not isOwner then
+        return { success = false, message = IMRP.Locale('not_owner') }
+    end
+
+    MySQL.query('DELETE FROM apartment_guests WHERE apartment_id = ? AND citizenid = ?', { apartmentId, targetCitizenId })
+
+    LogAction(citizenid, apartmentId, 'remove_guest', ('Guest: %s'):format(targetCitizenId))
+
+    return { success = true }
+end)
+
+-----------------------------------------------------------
+-- Garage System
+-----------------------------------------------------------
+lib.callback.register('imrp_apartments:server:storeVehicle', function(source, apartmentKey, plate, props)
+    local src = source
+    local player = QBX:GetPlayer(src)
+    if not player then return { success = false } end
+
+    local citizenid = player.PlayerData.citizenid
+
+    -- Verify access
+    local hasAccess, apartmentId, _ = HasAccessToApartment(citizenid, apartmentKey)
+    if not hasAccess then
+        return { success = false, message = IMRP.Locale('no_access') }
+    end
+
+    -- Verify vehicle ownership
+    local vehicleOwned = MySQL.scalar.await('SELECT COUNT(*) FROM player_vehicles WHERE citizenid = ? AND plate = ?', { citizenid, plate })
+    if not vehicleOwned or vehicleOwned == 0 then
+        return { success = false, message = IMRP.Locale('not_your_vehicle') }
+    end
+
+    -- Update vehicle garage location
+    MySQL.update('UPDATE player_vehicles SET garage = ?, state = 1 WHERE citizenid = ? AND plate = ?', {
+        ('apartment_%s'):format(apartmentId), citizenid, plate
+    })
+
+    LogAction(citizenid, apartmentId, 'store_vehicle', ('Plate: %s'):format(plate))
+
+    return { success = true }
+end)
+
+lib.callback.register('imrp_apartments:server:getStoredVehicles', function(source, apartmentKey)
+    local src = source
+    local player = QBX:GetPlayer(src)
+    if not player then return nil end
+
+    local citizenid = player.PlayerData.citizenid
+
+    local hasAccess, apartmentId, _ = HasAccessToApartment(citizenid, apartmentKey)
+    if not hasAccess then return nil end
+
+    local vehicles = MySQL.query.await('SELECT vehicle, plate, mods FROM player_vehicles WHERE citizenid = ? AND garage = ? AND state = 1', {
+        citizenid, ('apartment_%s'):format(apartmentId)
+    })
+
+    if not vehicles then return {} end
+
+    local result = {}
+    for _, veh in ipairs(vehicles) do
+        result[#result + 1] = {
+            name = veh.vehicle,
+            plate = veh.plate,
+            model = GetHashKey(veh.vehicle),
+            props = veh.mods and json.decode(veh.mods) or nil
+        }
+    end
+
     return result
 end)
 
--- Admin command: Give apartment
-RegisterCommand('apartmentgive', function(source, args, rawCommand)
-    local player = GetPlayer(source)
-    if not player then 
-        print('[imrp_apartments] Admin command used by non-existent player')
-        return 
-    end
-    
-    -- Check admin permission
-    if not HasPermission(source, Config.AdminPermissions) then
-        TriggerClientEvent('ox_lib:notify', source, {
-            title = 'Error',
-            description = 'You don\'t have permission to use this command',
-            type = 'error'
-        })
-        return
-    end
-    
-    if not args[1] or not args[2] then
-        TriggerClientEvent('ox_lib:notify', source, {
-            title = 'Usage',
-            description = '/apartmentgive [player_id] [apartment_id]',
-            type = 'info'
-        })
-        return
-    end
-    
-    local target_id = tonumber(args[1])
-    local apartment_id = args[2]
-    
-    if not target_id then
-        TriggerClientEvent('ox_lib:notify', source, {
-            title = 'Error',
-            description = 'Invalid player ID',
-            type = 'error'
-        })
-        return
-    end
-    
-    local target = GetPlayer(target_id)
-    if not target then
-        TriggerClientEvent('ox_lib:notify', source, {
-            title = 'Error',
-            description = 'Player not found',
-            type = 'error'
-        })
-        return
-    end
-    
-    local success, message = GiveApartmentToPlayer(target_id, apartment_id)
-    if success then
-        TriggerClientEvent('ox_lib:notify', source, {
-            title = 'Success',
-            description = 'Apartment given successfully',
-            type = 'success'
-        })
-    else
-        TriggerClientEvent('ox_lib:notify', source, {
-            title = 'Error',
-            description = message or 'Failed to give apartment',
-            type = 'error'
-        })
-    end
-end, true)
+lib.callback.register('imrp_apartments:server:retrieveVehicle', function(source, apartmentKey, plate)
+    local src = source
+    local player = QBX:GetPlayer(src)
+    if not player then return { success = false } end
 
--- Admin command: Remove apartment
-RegisterCommand('apartmentremove', function(source, args, rawCommand)
-    local player = GetPlayer(source)
-    if not player then return end
-    
-    if not HasPermission(source, Config.AdminPermissions) then
-        TriggerClientEvent('ox_lib:notify', source, {
-            title = 'Error',
-            description = 'You don\'t have permission to use this command',
-            type = 'error'
-        })
-        return
-    end
-    
-    if not args[1] then
-        TriggerClientEvent('ox_lib:notify', source, {
-            title = 'Usage',
-            description = '/apartmentremove [citizenid]',
-            type = 'info'
-        })
-        return
-    end
-    
-    local citizenid = args[1]
-    local success = MySQL.Async.execute('DELETE FROM player_apartments WHERE citizenid = ?', {citizenid})
-    
-    if success then
-        TriggerClientEvent('ox_lib:notify', source, {
-            title = 'Success',
-            description = 'Apartment removed successfully',
-            type = 'success'
-        })
-    else
-        TriggerClientEvent('ox_lib:notify', source, {
-            title = 'Error',
-            description = 'Failed to remove apartment',
-            type = 'error'
-        })
-    end
-end, true)
+    local citizenid = player.PlayerData.citizenid
 
--- Admin command: List apartments
-RegisterCommand('apartments', function(source, args, rawCommand)
-    local player = GetPlayer(source)
-    if not player then return end
-    
-    if not HasPermission(source, Config.AdminPermissions) then
-        TriggerClientEvent('ox_lib:notify', source, {
-            title = 'Error',
-            description = 'You don\'t have permission to use this command',
-            type = 'error'
-        })
-        return
+    local hasAccess, apartmentId, _ = HasAccessToApartment(citizenid, apartmentKey)
+    if not hasAccess then
+        return { success = false, message = IMRP.Locale('no_access') }
     end
-    
-    local results = SafeFetchAll('SELECT * FROM player_apartments WHERE expire_date > NOW()', {})
-    
-    if not results or #results == 0 then
-        TriggerClientEvent('ox_lib:notify', source, {
-            title = 'Info',
-            description = 'No active apartments found',
-            type = 'info'
-        })
-        return
-    end
-    
-    local message = 'Active Apartments:\n'
-    for _, data in ipairs(results) do
-        local apartment = Config.Apartments[data.apartment]
-        local apartment_name = apartment and apartment.label or data.apartment
-        message = message .. string.format('%s - %s (Expires: %s)\n', 
-            data.citizenid, 
-            apartment_name, 
-            os.date('%Y-%m-%d', data.expire_date))
-    end
-    
-    TriggerClientEvent('ox_lib:notify', source, {
-        title = 'Apartment List',
-        description = message,
-        type = 'info',
-        duration = 15000
+
+    MySQL.update('UPDATE player_vehicles SET state = 0 WHERE citizenid = ? AND plate = ? AND garage = ?', {
+        citizenid, plate, ('apartment_%s'):format(apartmentId)
     })
-end, true)
 
--- Admin command: Reset apartments
-RegisterCommand('apartmentreset', function(source, args, rawCommand)
-    local player = GetPlayer(source)
-    if not player then return end
-    
-    if not HasPermission(source, Config.AdminPermissions) then
-        TriggerClientEvent('ox_lib:notify', source, {
-            title = 'Error',
-            description = 'You don\'t have permission to use this command',
-            type = 'error'
-        })
-        return
-    end
-    
-    MySQL.Async.execute('TRUNCATE TABLE player_apartments', function(success)
-        if success then
-            TriggerClientEvent('ox_lib:notify', source, {
-                title = 'Success',
-                description = 'All apartments have been reset',
-                type = 'success'
-            })
-        else
-            TriggerClientEvent('ox_lib:notify', source, {
-                title = 'Error',
-                description = 'Failed to reset apartments',
-                type = 'error'
-            })
-        end
-    end)
-end, true)
+    LogAction(citizenid, apartmentId, 'retrieve_vehicle', ('Plate: %s'):format(plate))
 
--- Helper function to give apartment
-function GiveApartmentToPlayer(player_id, apartment_id)
-    local target = GetPlayer(player_id)
-    if not target then 
-        return false, 'Player not found' 
-    end
-    
-    local apartment = Config.Apartments[apartment_id]
-    if not apartment then 
-        return false, 'Apartment not found' 
-    end
-    
-    local citizenid = target.PlayerData.citizenid
-    if not citizenid then 
-        return false, 'Citizen ID not found' 
-    end
-    
-    -- Check if player already owns this apartment
-    local existing = SafeFetchSingle('SELECT * FROM player_apartments WHERE citizenid = ? AND apartment = ?', {
-        citizenid, apartment_id
-    })
-    
-    if existing then
-        if existing.expire_date and existing.expire_date > os.time() then
-            return false, 'Player already owns this apartment'
-        else
-            MySQL.Async.execute('DELETE FROM player_apartments WHERE id = ?', {existing.id})
-        end
-    end
-    
-    local roomid = utils.GenerateRoomID(citizenid, apartment_id)
-    local expire_date = os.time() + (apartment.rental_days * 86400)
-    
-    local success = MySQL.Async.execute([[
-        INSERT INTO player_apartments (citizenid, apartment, roomid, expire_date) 
-        VALUES (?, ?, ?, FROM_UNIXTIME(?))
-    ]], {citizenid, apartment_id, roomid, expire_date})
-    
-    if success then
-        -- Create stash
-        local stash_id = 'apartment_stash_' .. roomid
-        exports.ox_inventory:RegisterStash(stash_id, apartment.label .. ' Stash', apartment.stash_slots, apartment.stash_weight)
-        return true, 'Success'
-    else
-        return false, 'Database error'
-    end
-end
-
--- Permission check
-function HasPermission(source, permissions)
-    local player = GetPlayer(source)
-    if not player then 
-        return false 
-    end
-    
-    -- Check if player has admin permissions
-    if player.PlayerData.permissions then
-        for _, permission in ipairs(permissions) do
-            if player.PlayerData.permissions[permission] then
-                return true
-            end
-        end
-    end
-    
-    -- Check if player is admin via group
-    if player.PlayerData.group then
-        for _, permission in ipairs(permissions) do
-            if player.PlayerData.group == permission then
-                return true
-            end
-        end
-    end
-    
-    return false
-end
-
--- Format number helper
-function FormatNumber(number)
-    return string.format("%.0f", number):reverse():gsub("%d%d%d", "%1,"):reverse():gsub("^,", "")
-end
-
--- Auto cleanup expired apartments
-CreateThread(function()
-    while true do
-        Wait(Config.UpdateInterval or 60000)
-        
-        local expired = SafeFetchAll('SELECT * FROM player_apartments WHERE expire_date < NOW()', {})
-        
-        if expired and #expired > 0 then
-            for _, data in ipairs(expired) do
-                -- Delete expired apartment
-                MySQL.Async.execute('DELETE FROM player_apartments WHERE id = ?', {data.id})
-                
-                -- Notify player if online
-                local player = GetPlayerByCitizenId(data.citizenid)
-                if player then
-                    TriggerClientEvent('ox_lib:notify', player.PlayerData.source, {
-                        title = 'Apartment Expired',
-                        description = 'Your apartment has expired. Please renew to regain access.',
-                        type = 'error'
-                    })
-                end
-            end
-            
-            print(string.format('[imrp_apartments] Removed %s expired apartments', #expired))
-        end
-    end
+    return { success = true }
 end)
 
-print('^2[imrp_apartments] Apartment system loaded successfully!^0')
+-----------------------------------------------------------
+-- Logout in Apartment
+-----------------------------------------------------------
+RegisterNetEvent('imrp_apartments:server:logoutInApartment', function()
+    local src = source
+    local player = QBX:GetPlayer(src)
+    if not player then return end
+
+    -- Reset bucket before logout
+    if Config.UseRoutingBuckets then
+        SetPlayerRoutingBucket(src, 0)
+    end
+
+    -- Trigger QBX multicharacter logout
+    TriggerClientEvent('qbx_core:client:Logout', src)
+end)
+
+-----------------------------------------------------------
+-- Door Lock
+-----------------------------------------------------------
+lib.callback.register('imrp_apartments:server:toggleLock', function(source, apartmentKey)
+    local src = source
+    local player = QBX:GetPlayer(src)
+    if not player then return { success = false } end
+
+    local citizenid = player.PlayerData.citizenid
+    local hasAccess, _, _ = HasAccessToApartment(citizenid, apartmentKey)
+    if not hasAccess then
+        return { success = false, message = IMRP.Locale('no_access') }
+    end
+
+    return { success = true }
+end)

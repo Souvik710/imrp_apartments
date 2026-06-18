@@ -1,0 +1,283 @@
+/* IMRP Apartments - UI Stylesheet */
+/* Theme: Black, Sky Blue, Dark Glass Design */
+/* Author: Ragna | Immortal Roleplay */
+
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+}
+
+body {
+    background: transparent;
+    overflow: hidden;
+    width: 100vw;
+    height: 100vh;
+}
+
+.hidden {
+    display: none !important;
+}
+
+#app {
+    width: 100%;
+    height: 100%;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+}
+
+/* ========================= */
+/* Panel Base */
+/* ========================= */
+.panel {
+    width: 480px;
+    max-height: 80vh;
+    background: linear-gradient(135deg, rgba(10, 10, 20, 0.95), rgba(20, 30, 50, 0.92));
+    border: 1px solid rgba(100, 180, 255, 0.2);
+    border-radius: 16px;
+    backdrop-filter: blur(20px);
+    box-shadow:
+        0 0 40px rgba(0, 150, 255, 0.1),
+        0 20px 60px rgba(0, 0, 0, 0.5),
+        inset 0 1px 0 rgba(255, 255, 255, 0.05);
+    overflow: hidden;
+    animation: slideIn 0.3s ease-out;
+}
+
+@keyframes slideIn {
+    from {
+        opacity: 0;
+        transform: translateY(20px) scale(0.95);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0) scale(1);
+    }
+}
+
+/* ========================= */
+/* Panel Header */
+/* ========================= */
+.panel-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 16px 24px;
+    background: linear-gradient(90deg, rgba(0, 120, 220, 0.15), rgba(0, 180, 255, 0.08));
+    border-bottom: 1px solid rgba(100, 180, 255, 0.15);
+}
+
+.brand {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    color: #87CEEB;
+    font-size: 14px;
+    font-weight: 700;
+    letter-spacing: 2px;
+    text-transform: uppercase;
+}
+
+.brand i {
+    font-size: 18px;
+    color: #4FC3F7;
+}
+
+.close-btn {
+    background: rgba(255, 80, 80, 0.1);
+    border: 1px solid rgba(255, 80, 80, 0.3);
+    color: #FF6B6B;
+    width: 32px;
+    height: 32px;
+    border-radius: 8px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.2s ease;
+}
+
+.close-btn:hover {
+    background: rgba(255, 80, 80, 0.25);
+    border-color: rgba(255, 80, 80, 0.6);
+    transform: scale(1.05);
+}
+
+/* ========================= */
+/* Panel Content */
+/* ========================= */
+.panel-content {
+    padding: 24px;
+    max-height: 60vh;
+    overflow-y: auto;
+}
+
+.panel-content::-webkit-scrollbar {
+    width: 4px;
+}
+
+.panel-content::-webkit-scrollbar-track {
+    background: rgba(255, 255, 255, 0.02);
+}
+
+.panel-content::-webkit-scrollbar-thumb {
+    background: rgba(100, 180, 255, 0.3);
+    border-radius: 4px;
+}
+
+.panel-content h2 {
+    color: #E0F0FF;
+    font-size: 18px;
+    font-weight: 600;
+    margin-bottom: 20px;
+    text-align: center;
+    text-shadow: 0 0 10px rgba(100, 180, 255, 0.3);
+}
+
+/* ========================= */
+/* Info Grid */
+/* ========================= */
+.info-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 12px;
+}
+
+.info-item {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 12px 14px;
+    background: rgba(255, 255, 255, 0.03);
+    border: 1px solid rgba(100, 180, 255, 0.08);
+    border-radius: 10px;
+    transition: all 0.2s ease;
+}
+
+.info-item:hover {
+    background: rgba(100, 180, 255, 0.06);
+    border-color: rgba(100, 180, 255, 0.2);
+    transform: translateY(-1px);
+}
+
+.info-item i {
+    font-size: 16px;
+    color: #4FC3F7;
+    width: 20px;
+    text-align: center;
+    flex-shrink: 0;
+}
+
+.info-details {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    min-width: 0;
+}
+
+.info-label {
+    font-size: 10px;
+    color: rgba(180, 200, 220, 0.6);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.info-value {
+    font-size: 13px;
+    color: #E0F0FF;
+    font-weight: 500;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+/* ========================= */
+/* Panel Footer */
+/* ========================= */
+.panel-footer {
+    padding: 12px 24px;
+    text-align: center;
+    border-top: 1px solid rgba(100, 180, 255, 0.1);
+    background: rgba(0, 0, 0, 0.2);
+}
+
+.panel-footer span {
+    font-size: 11px;
+    color: rgba(180, 200, 220, 0.4);
+    letter-spacing: 1px;
+    text-transform: uppercase;
+}
+
+/* ========================= */
+/* Notification Toast */
+/* ========================= */
+.notification {
+    position: fixed;
+    top: 20px;
+    right: 20px;
+    max-width: 360px;
+    padding: 14px 20px;
+    background: linear-gradient(135deg, rgba(10, 10, 20, 0.95), rgba(20, 30, 50, 0.92));
+    border: 1px solid rgba(100, 180, 255, 0.2);
+    border-radius: 10px;
+    backdrop-filter: blur(10px);
+    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.4);
+    animation: slideInRight 0.3s ease-out;
+    z-index: 9999;
+}
+
+@keyframes slideInRight {
+    from {
+        opacity: 0;
+        transform: translateX(30px);
+    }
+    to {
+        opacity: 1;
+        transform: translateX(0);
+    }
+}
+
+.notification-content {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+
+.notification-content i {
+    font-size: 18px;
+    color: #4FC3F7;
+}
+
+.notification-content span {
+    font-size: 13px;
+    color: #E0F0FF;
+    line-height: 1.4;
+}
+
+.notification.success .notification-content i {
+    color: #4CAF50;
+}
+
+.notification.error .notification-content i {
+    color: #FF6B6B;
+}
+
+.notification.info .notification-content i {
+    color: #4FC3F7;
+}
+
+/* ========================= */
+/* Responsive */
+/* ========================= */
+@media (max-width: 520px) {
+    .panel {
+        width: 95%;
+        margin: 10px;
+    }
+
+    .info-grid {
+        grid-template-columns: 1fr;
+    }
+}

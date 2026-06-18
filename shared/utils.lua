@@ -1,60 +1,141 @@
-local Utils = {}
+-----------------------------------------------------------
+-- IMRP Apartments - Shared Utilities
+-- Author: Ragna | Immortal Roleplay
+-----------------------------------------------------------
 
-function Utils.GenerateRoomID(citizenid, apartment_id)
-    return string.format('%s_%s_%s', citizenid, apartment_id, os.time())
-end
+IMRP = IMRP or {}
 
-function Utils.IsNullOrEmpty(str)
-    return str == nil or str == ''
-end
+-----------------------------------------------------------
+-- Locale System
+-----------------------------------------------------------
+local Locales = {}
 
-function Utils.FormatCurrency(amount)
-    return '$' .. string.format("%.2f", amount)
-end
-
-function Utils.GetDaysRemaining(expire_date)
-    local current_time = os.time()
-    local expire_timestamp = expire_date
-    local time_diff = expire_timestamp - current_time
-    return math.max(0, math.ceil(time_diff / 86400))
-end
-
-function Utils.GetApartmentById(id)
-    for k, v in pairs(Config.Apartments) do
-        if k == id then
-            return v
+function IMRP.LoadLocale(lang)
+    local file = LoadResourceFile(GetCurrentResourceName(), ('locales/%s.lua'):format(lang or 'en'))
+    if file then
+        local fn = load(file)
+        if fn then
+            fn()
         end
     end
-    return nil
 end
 
-function Utils.PlayerOwnsApartment(player_id, apartment_id)
-    local player = exports.qb_core:GetPlayer(player_id)
-    if not player then return false end
-    
-    local citizenid = player.PlayerData.citizenid
-    local result = MySQL.Async.fetchSingle('SELECT COUNT(*) as count FROM player_apartments WHERE citizenid = ? AND apartment = ? AND expire_date > NOW()', {
-        citizenid, apartment_id
-    })
-    
-    return result and result.count > 0
+function IMRP.SetLocales(data)
+    Locales = data or {}
 end
 
-function Utils.GetPlayerApartments(player_id)
-    local player = exports.qb_core:GetPlayer(player_id)
-    if not player then return {} end
-    
-    local citizenid = player.PlayerData.citizenid
-    local results = MySQL.Async.fetchAll('SELECT * FROM player_apartments WHERE citizenid = ? AND expire_date > NOW()', {
-        citizenid
-    })
-    
-    return results or {}
+function IMRP.Locale(key, ...)
+    local str = Locales[key]
+    if not str then return key end
+    if ... then
+        return str:format(...)
+    end
+    return str
 end
 
-function Utils.GetAllApartments()
-    local results = MySQL.Async.fetchAll('SELECT * FROM player_apartments WHERE expire_date > NOW()', {})
-    return results or {}
+-----------------------------------------------------------
+-- Generate Unique Apartment ID
+-----------------------------------------------------------
+function IMRP.GenerateApartmentId(apartmentKey, bucketId)
+    return ('%s_%d'):format(apartmentKey, bucketId)
 end
 
-return Utils
+-----------------------------------------------------------
+-- Generate Stash ID
+-----------------------------------------------------------
+function IMRP.GenerateStashId(apartmentId)
+    return ('stash_%s'):format(apartmentId)
+end
+
+-----------------------------------------------------------
+-- Format Currency
+-----------------------------------------------------------
+function IMRP.FormatCurrency(amount)
+    if not amount then return '$0' end
+    local formatted = tostring(math.floor(amount))
+    local k
+    while true do
+        formatted, k = formatted:gsub('^(-?%d+)(%d%d%d)', '%1,%2')
+        if k == 0 then break end
+    end
+    return '$' .. formatted
+end
+
+-----------------------------------------------------------
+-- Format Date
+-----------------------------------------------------------
+function IMRP.FormatDate(timestamp)
+    if not timestamp then return 'N/A' end
+    return os.date('%Y-%m-%d %H:%M', timestamp)
+end
+
+-----------------------------------------------------------
+-- Calculate Days Remaining
+-----------------------------------------------------------
+function IMRP.DaysRemaining(expireTimestamp)
+    if not expireTimestamp then return 0 end
+    local now = os.time()
+    local diff = expireTimestamp - now
+    if diff <= 0 then return 0 end
+    return math.ceil(diff / 86400)
+end
+
+-----------------------------------------------------------
+-- Validate Apartment Key
+-----------------------------------------------------------
+function IMRP.IsValidApartment(key)
+    return Config.Apartments[key] ~= nil
+end
+
+-----------------------------------------------------------
+-- Get Apartment Type Data
+-----------------------------------------------------------
+function IMRP.GetApartmentTypeData(key)
+    local apartment = Config.Apartments[key]
+    if not apartment then return nil end
+    return Config.ApartmentTypes[apartment.type]
+end
+
+-----------------------------------------------------------
+-- Get Price for Apartment
+-----------------------------------------------------------
+function IMRP.GetApartmentPrice(key)
+    local typeData = IMRP.GetApartmentTypeData(key)
+    if not typeData then return 0 end
+    return typeData.price
+end
+
+-----------------------------------------------------------
+-- Get Rental Price for Apartment
+-----------------------------------------------------------
+function IMRP.GetRentalPrice(key)
+    local typeData = IMRP.GetApartmentTypeData(key)
+    if not typeData then return 0 end
+    return typeData.rental_price
+end
+
+-----------------------------------------------------------
+-- Deep Copy Table
+-----------------------------------------------------------
+function IMRP.DeepCopy(orig)
+    local copy = {}
+    for k, v in pairs(orig) do
+        if type(v) == 'table' then
+            copy[k] = IMRP.DeepCopy(v)
+        else
+            copy[k] = v
+        end
+    end
+    return copy
+end
+
+-----------------------------------------------------------
+-- Debug Print
+-----------------------------------------------------------
+Config.Debug = false
+
+function IMRP.Debug(...)
+    if Config.Debug then
+        print('[IMRP_APARTMENTS]', ...)
+    end
+end
