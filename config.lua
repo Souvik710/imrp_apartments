@@ -3,6 +3,7 @@ Config = {}
 -- General Settings
 Config.Framework = 'qbx_core'
 Config.UseTarget = true
+Config.Debug = false -- NEVER enable in production; exposes internal state
 
 -- Apartment Configurations
 Config.Apartments = {
