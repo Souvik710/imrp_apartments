@@ -61,9 +61,14 @@ lib.addCommand('giveapartment', {
     local expireDate = os.date('%Y-%m-%d %H:%M:%S', os.time() + (365 * 86400))
     local purchaseDate = os.date('%Y-%m-%d %H:%M:%S')
 
-    MySQL.insert('INSERT INTO apartments (citizenid, apartment_id, apartment_name, apartment_type, bucket_id, purchase_date, expire_date, purchase_type) VALUES (?, ?, ?, ?, ?, ?, ?, ?)', {
+    local ok, insertErr = pcall(MySQL.insert.await, 'INSERT INTO apartments (citizenid, apartment_id, apartment_name, apartment_type, bucket_id, purchase_date, expire_date, purchase_type) VALUES (?, ?, ?, ?, ?, ?, ?, ?)', {
         citizenid, apartmentId, apartmentKey, Config.Apartments[apartmentKey].type, bucketId, purchaseDate, expireDate, 'admin'
     })
+    if not ok then
+        print(('^1[imrp_apartments] Admin give apartment DB error: %s^0'):format(tostring(insertErr)))
+        lib.notify(source, { title = 'Apartments', description = 'Database error', type = 'error' })
+        return
+    end
 
     OwnedApartments[apartmentId] = {
         citizenid = citizenid,
@@ -78,7 +83,11 @@ lib.addCommand('giveapartment', {
     -- Register stash
     local typeData = IMRP.GetApartmentTypeData(apartmentKey)
     local stashId = IMRP.GenerateStashId(apartmentId)
-    exports.ox_inventory:RegisterStash(stashId, ('%s Stash'):format(Config.Apartments[apartmentKey].label), typeData.stash_slots, typeData.stash_weight)
+    local stashOk, stashErr = pcall(exports.ox_inventory.RegisterStash, exports.ox_inventory,
+        stashId, ('%s Stash'):format(Config.Apartments[apartmentKey].label), typeData.stash_slots, typeData.stash_weight)
+    if not stashOk then
+        print(('^3[imrp_apartments] Warning: Failed to register stash %s: %s^0'):format(stashId, tostring(stashErr)))
+    end
 
     LogAction(citizenid, apartmentId, 'admin_give', ('By: %s'):format(GetPlayerName(source) or 'Console'))
 
@@ -179,7 +188,12 @@ lib.addCommand('expireapartment', {
     local citizenid = OwnedApartments[apartmentId].citizenid
 
     -- Set expire to now
-    MySQL.update('UPDATE apartments SET expire_date = NOW() WHERE apartment_id = ?', { apartmentId })
+    local ok, err = pcall(MySQL.update.await, 'UPDATE apartments SET expire_date = NOW() WHERE apartment_id = ?', { apartmentId })
+    if not ok then
+        print(('^1[imrp_apartments] Admin expire DB error: %s^0'):format(tostring(err)))
+        lib.notify(source, { title = 'Apartments', description = 'Database error', type = 'error' })
+        return
+    end
     OwnedApartments[apartmentId].expire_date = os.date('%Y-%m-%d %H:%M:%S')
 
     LogAction(citizenid, apartmentId, 'admin_expire', ('By: %s'):format(GetPlayerName(source) or 'Console'))

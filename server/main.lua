@@ -8,68 +8,112 @@ local OwnedApartments = {}
 local NextBucketId = Config.BucketStart
 
 -----------------------------------------------------------
+-- Safe DB Helpers
+-----------------------------------------------------------
+local function SafeQuery(query, params)
+    local ok, result = pcall(MySQL.query.await, query, params or {})
+    if not ok then
+        print(('^1[imrp_apartments] DB query error: %s^0'):format(tostring(result)))
+        return nil
+    end
+    return result
+end
+
+local function SafeInsert(query, params)
+    local ok, result = pcall(MySQL.insert.await, query, params or {})
+    if not ok then
+        print(('^1[imrp_apartments] DB insert error: %s^0'):format(tostring(result)))
+        return nil
+    end
+    return result
+end
+
+local function SafeUpdate(query, params)
+    local ok, result = pcall(MySQL.update.await, query, params or {})
+    if not ok then
+        print(('^1[imrp_apartments] DB update error: %s^0'):format(tostring(result)))
+        return nil
+    end
+    return result
+end
+
+local function SafeScalar(query, params)
+    local ok, result = pcall(MySQL.scalar.await, query, params or {})
+    if not ok then
+        print(('^1[imrp_apartments] DB scalar error: %s^0'):format(tostring(result)))
+        return nil
+    end
+    return result
+end
+
+-----------------------------------------------------------
 -- Initialize Database & Load Apartments
 -----------------------------------------------------------
 CreateThread(function()
     MySQL.ready(function()
-        -- Create tables if they don't exist
-        MySQL.query([[
-            CREATE TABLE IF NOT EXISTS `apartments` (
-                `id` INT AUTO_INCREMENT PRIMARY KEY,
-                `citizenid` VARCHAR(50) NOT NULL,
-                `apartment_id` VARCHAR(100) NOT NULL UNIQUE,
-                `apartment_name` VARCHAR(100) NOT NULL,
-                `apartment_type` VARCHAR(50) NOT NULL,
-                `bucket_id` INT NOT NULL,
-                `purchase_date` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-                `expire_date` DATETIME NOT NULL,
-                `purchase_type` VARCHAR(20) NOT NULL DEFAULT 'buy',
-                INDEX `idx_citizenid` (`citizenid`),
-                INDEX `idx_apartment_name` (`apartment_name`),
-                INDEX `idx_expire_date` (`expire_date`)
-            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
-        ]])
+        local tables = {
+            { name = 'apartments', sql = [[
+                CREATE TABLE IF NOT EXISTS `apartments` (
+                    `id` INT AUTO_INCREMENT PRIMARY KEY,
+                    `citizenid` VARCHAR(50) NOT NULL,
+                    `apartment_id` VARCHAR(100) NOT NULL UNIQUE,
+                    `apartment_name` VARCHAR(100) NOT NULL,
+                    `apartment_type` VARCHAR(50) NOT NULL,
+                    `bucket_id` INT NOT NULL,
+                    `purchase_date` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    `expire_date` DATETIME NOT NULL,
+                    `purchase_type` VARCHAR(20) NOT NULL DEFAULT 'buy',
+                    INDEX `idx_citizenid` (`citizenid`),
+                    INDEX `idx_apartment_name` (`apartment_name`),
+                    INDEX `idx_expire_date` (`expire_date`)
+                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+            ]] },
+            { name = 'apartment_keys', sql = [[
+                CREATE TABLE IF NOT EXISTS `apartment_keys` (
+                    `id` INT AUTO_INCREMENT PRIMARY KEY,
+                    `apartment_id` VARCHAR(100) NOT NULL,
+                    `citizenid` VARCHAR(50) NOT NULL,
+                    `key_type` VARCHAR(20) NOT NULL DEFAULT 'permanent',
+                    `granted_date` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    INDEX `idx_apartment_id` (`apartment_id`),
+                    INDEX `idx_citizenid` (`citizenid`),
+                    UNIQUE KEY `unique_key` (`apartment_id`, `citizenid`)
+                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+            ]] },
+            { name = 'apartment_guests', sql = [[
+                CREATE TABLE IF NOT EXISTS `apartment_guests` (
+                    `id` INT AUTO_INCREMENT PRIMARY KEY,
+                    `apartment_id` VARCHAR(100) NOT NULL,
+                    `citizenid` VARCHAR(50) NOT NULL,
+                    `invited_date` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    INDEX `idx_apartment_id` (`apartment_id`),
+                    INDEX `idx_citizenid` (`citizenid`),
+                    UNIQUE KEY `unique_guest` (`apartment_id`, `citizenid`)
+                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+            ]] },
+            { name = 'apartment_logs', sql = [[
+                CREATE TABLE IF NOT EXISTS `apartment_logs` (
+                    `id` INT AUTO_INCREMENT PRIMARY KEY,
+                    `citizenid` VARCHAR(50) NOT NULL,
+                    `apartment_id` VARCHAR(100) DEFAULT NULL,
+                    `action` VARCHAR(100) NOT NULL,
+                    `details` TEXT DEFAULT NULL,
+                    `date` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    INDEX `idx_citizenid` (`citizenid`),
+                    INDEX `idx_date` (`date`)
+                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+            ]] }
+        }
 
-        MySQL.query([[
-            CREATE TABLE IF NOT EXISTS `apartment_keys` (
-                `id` INT AUTO_INCREMENT PRIMARY KEY,
-                `apartment_id` VARCHAR(100) NOT NULL,
-                `citizenid` VARCHAR(50) NOT NULL,
-                `key_type` VARCHAR(20) NOT NULL DEFAULT 'permanent',
-                `granted_date` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-                INDEX `idx_apartment_id` (`apartment_id`),
-                INDEX `idx_citizenid` (`citizenid`),
-                UNIQUE KEY `unique_key` (`apartment_id`, `citizenid`)
-            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
-        ]])
-
-        MySQL.query([[
-            CREATE TABLE IF NOT EXISTS `apartment_guests` (
-                `id` INT AUTO_INCREMENT PRIMARY KEY,
-                `apartment_id` VARCHAR(100) NOT NULL,
-                `citizenid` VARCHAR(50) NOT NULL,
-                `invited_date` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-                INDEX `idx_apartment_id` (`apartment_id`),
-                INDEX `idx_citizenid` (`citizenid`),
-                UNIQUE KEY `unique_guest` (`apartment_id`, `citizenid`)
-            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
-        ]])
-
-        MySQL.query([[
-            CREATE TABLE IF NOT EXISTS `apartment_logs` (
-                `id` INT AUTO_INCREMENT PRIMARY KEY,
-                `citizenid` VARCHAR(50) NOT NULL,
-                `apartment_id` VARCHAR(100) DEFAULT NULL,
-                `action` VARCHAR(100) NOT NULL,
-                `details` TEXT DEFAULT NULL,
-                `date` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-                INDEX `idx_citizenid` (`citizenid`),
-                INDEX `idx_date` (`date`)
-            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
-        ]])
+        for _, tbl in ipairs(tables) do
+            local ok, err = pcall(MySQL.query.await, tbl.sql)
+            if not ok then
+                print(('^1[imrp_apartments] Failed to create table %s: %s^0'):format(tbl.name, tostring(err)))
+            end
+        end
 
         -- Load existing apartments
-        local apartments = MySQL.query.await('SELECT * FROM apartments WHERE expire_date > NOW()')
+        local apartments = SafeQuery('SELECT * FROM apartments WHERE expire_date > NOW()')
         if apartments then
             for _, apt in ipairs(apartments) do
                 OwnedApartments[apt.apartment_id] = {
@@ -127,6 +171,8 @@ function GetPlayerApartmentCount(citizenid)
 end
 
 function HasAccessToApartment(citizenid, apartmentKey)
+    if not citizenid or not apartmentKey then return false, nil, nil end
+
     -- Check ownership
     for id, data in pairs(OwnedApartments) do
         if data.citizenid == citizenid and data.apartment_name == apartmentKey then
@@ -137,7 +183,7 @@ function HasAccessToApartment(citizenid, apartmentKey)
     -- Check keys
     for id, data in pairs(OwnedApartments) do
         if data.apartment_name == apartmentKey then
-            local hasKey = MySQL.scalar.await('SELECT COUNT(*) FROM apartment_keys WHERE apartment_id = ? AND citizenid = ?', { id, citizenid })
+            local hasKey = SafeScalar('SELECT COUNT(*) FROM apartment_keys WHERE apartment_id = ? AND citizenid = ?', { id, citizenid })
             if hasKey and hasKey > 0 then
                 return true, id, data
             end
@@ -147,7 +193,7 @@ function HasAccessToApartment(citizenid, apartmentKey)
     -- Check guest access
     for id, data in pairs(OwnedApartments) do
         if data.apartment_name == apartmentKey then
-            local isGuest = MySQL.scalar.await('SELECT COUNT(*) FROM apartment_guests WHERE apartment_id = ? AND citizenid = ?', { id, citizenid })
+            local isGuest = SafeScalar('SELECT COUNT(*) FROM apartment_guests WHERE apartment_id = ? AND citizenid = ?', { id, citizenid })
             if isGuest and isGuest > 0 then
                 return true, id, data
             end
@@ -167,9 +213,12 @@ function IsOwner(citizenid, apartmentKey)
 end
 
 function LogAction(citizenid, apartmentId, action, details)
-    MySQL.insert('INSERT INTO apartment_logs (citizenid, apartment_id, action, details) VALUES (?, ?, ?, ?)', {
+    local ok, err = pcall(MySQL.insert, 'INSERT INTO apartment_logs (citizenid, apartment_id, action, details) VALUES (?, ?, ?, ?)', {
         citizenid, apartmentId, action, details
     })
+    if not ok then
+        print(('^3[imrp_apartments] Failed to log action %s: %s^0'):format(action, tostring(err)))
+    end
 end
 
 -----------------------------------------------------------
@@ -215,7 +264,9 @@ lib.callback.register('imrp_apartments:server:buyApartment', function(source, ap
     end
 
     -- Deduct money
-    player.Functions.RemoveMoney(moneyType, price, 'apartment-purchase')
+    if not player.Functions.RemoveMoney(moneyType, price, 'apartment-purchase') then
+        return { success = false, message = 'Payment failed' }
+    end
 
     -- Generate bucket
     local bucketId = GetNextBucketId()
@@ -226,9 +277,15 @@ lib.callback.register('imrp_apartments:server:buyApartment', function(source, ap
     local purchaseDate = os.date('%Y-%m-%d %H:%M:%S')
 
     -- Save to database
-    MySQL.insert('INSERT INTO apartments (citizenid, apartment_id, apartment_name, apartment_type, bucket_id, purchase_date, expire_date, purchase_type) VALUES (?, ?, ?, ?, ?, ?, ?, ?)', {
+    local insertId = SafeInsert('INSERT INTO apartments (citizenid, apartment_id, apartment_name, apartment_type, bucket_id, purchase_date, expire_date, purchase_type) VALUES (?, ?, ?, ?, ?, ?, ?, ?)', {
         citizenid, apartmentId, apartmentKey, Config.Apartments[apartmentKey].type, bucketId, purchaseDate, expireDate, purchaseType
     })
+
+    if not insertId then
+        player.Functions.AddMoney(moneyType, price, 'apartment-purchase-refund')
+        print(('^1[imrp_apartments] DB insert failed for %s purchasing %s, refunded $%d^0'):format(citizenid, apartmentKey, price))
+        return { success = false, message = 'Database error occurred' }
+    end
 
     -- Cache
     OwnedApartments[apartmentId] = {
@@ -243,7 +300,11 @@ lib.callback.register('imrp_apartments:server:buyApartment', function(source, ap
 
     -- Register stash
     local stashId = IMRP.GenerateStashId(apartmentId)
-    exports.ox_inventory:RegisterStash(stashId, ('%s Stash'):format(Config.Apartments[apartmentKey].label), typeData.stash_slots, typeData.stash_weight)
+    local stashOk, stashErr = pcall(exports.ox_inventory.RegisterStash, exports.ox_inventory,
+        stashId, ('%s Stash'):format(Config.Apartments[apartmentKey].label), typeData.stash_slots, typeData.stash_weight)
+    if not stashOk then
+        print(('^3[imrp_apartments] Warning: Failed to register stash %s: %s^0'):format(stashId, tostring(stashErr)))
+    end
 
     -- Log
     LogAction(citizenid, apartmentId, 'purchase', ('Type: %s | Price: %d | Method: %s'):format(purchaseType, price, moneyType))
@@ -329,15 +390,22 @@ lib.callback.register('imrp_apartments:server:renewApartment', function(source, 
     end
 
     -- Deduct money
-    player.Functions.RemoveMoney(moneyType, renewPrice, 'apartment-renewal')
+    if not player.Functions.RemoveMoney(moneyType, renewPrice, 'apartment-renewal') then
+        return { success = false, message = 'Payment failed' }
+    end
 
     -- Extend expiry
     local aptData = OwnedApartments[apartmentId]
-    local currentExpire = aptData.expire_date
     local newExpireTimestamp = os.time() + (Config.ApartmentDuration * 86400)
     local newExpireDate = os.date('%Y-%m-%d %H:%M:%S', newExpireTimestamp)
 
-    MySQL.update('UPDATE apartments SET expire_date = ? WHERE apartment_id = ?', { newExpireDate, apartmentId })
+    local updated = SafeUpdate('UPDATE apartments SET expire_date = ? WHERE apartment_id = ?', { newExpireDate, apartmentId })
+    if not updated then
+        player.Functions.AddMoney(moneyType, renewPrice, 'apartment-renewal-refund')
+        print(('^1[imrp_apartments] DB update failed for renew, refunded $%d to %s^0'):format(renewPrice, citizenid))
+        return { success = false, message = 'Database error occurred' }
+    end
+
     OwnedApartments[apartmentId].expire_date = newExpireDate
 
     -- Log
@@ -370,12 +438,15 @@ lib.callback.register('imrp_apartments:server:sellApartment', function(source, a
 
     local refund = math.floor(typeData.price * Config.SellRefundPercent / 100)
 
+    -- Clean up first, then refund (ensures apartment is removed before money is given)
+    local cleanupOk = CleanupApartment(apartmentId)
+    if not cleanupOk then
+        return { success = false, message = 'Failed to remove apartment data' }
+    end
+
     -- Give refund
     local moneyType = Config.BankPayment and 'bank' or 'cash'
     player.Functions.AddMoney(moneyType, refund, 'apartment-sell')
-
-    -- Clean up
-    CleanupApartment(apartmentId)
 
     -- Log
     LogAction(citizenid, apartmentId, 'sell', ('Refund: %d'):format(refund))
@@ -387,19 +458,33 @@ end)
 -- Cleanup Apartment (remove from DB + cache)
 -----------------------------------------------------------
 function CleanupApartment(apartmentId)
+    if not apartmentId then
+        print('^1[imrp_apartments] CleanupApartment called with nil apartmentId^0')
+        return false
+    end
+
     -- Remove from database
-    MySQL.query('DELETE FROM apartments WHERE apartment_id = ?', { apartmentId })
-    MySQL.query('DELETE FROM apartment_keys WHERE apartment_id = ?', { apartmentId })
-    MySQL.query('DELETE FROM apartment_guests WHERE apartment_id = ?', { apartmentId })
+    local delOk, delErr = pcall(MySQL.query.await, 'DELETE FROM apartments WHERE apartment_id = ?', { apartmentId })
+    if not delOk then
+        print(('^1[imrp_apartments] Failed to delete apartment %s: %s^0'):format(apartmentId, tostring(delErr)))
+        return false
+    end
+
+    pcall(MySQL.query.await, 'DELETE FROM apartment_keys WHERE apartment_id = ?', { apartmentId })
+    pcall(MySQL.query.await, 'DELETE FROM apartment_guests WHERE apartment_id = ?', { apartmentId })
 
     -- Clear stash if configured
     if Config.ClearStashOnExpire then
         local stashId = IMRP.GenerateStashId(apartmentId)
-        exports.ox_inventory:ClearInventory(stashId)
+        local stashOk, stashErr = pcall(exports.ox_inventory.ClearInventory, exports.ox_inventory, stashId)
+        if not stashOk then
+            print(('^3[imrp_apartments] Warning: Failed to clear stash %s: %s^0'):format(stashId, tostring(stashErr)))
+        end
     end
 
     -- Remove from cache
     OwnedApartments[apartmentId] = nil
+    return true
 end
 
 -----------------------------------------------------------
@@ -417,8 +502,8 @@ lib.callback.register('imrp_apartments:server:getApartmentInfo', function(source
     local aptData = OwnedApartments[apartmentId]
     if not aptData then return nil end
 
-    local keysCount = MySQL.scalar.await('SELECT COUNT(*) FROM apartment_keys WHERE apartment_id = ?', { apartmentId }) or 0
-    local guestsCount = MySQL.scalar.await('SELECT COUNT(*) FROM apartment_guests WHERE apartment_id = ?', { apartmentId }) or 0
+    local keysCount = SafeScalar('SELECT COUNT(*) FROM apartment_keys WHERE apartment_id = ?', { apartmentId }) or 0
+    local guestsCount = SafeScalar('SELECT COUNT(*) FROM apartment_guests WHERE apartment_id = ?', { apartmentId }) or 0
 
     return {
         purchase_date = aptData.purchase_date,
@@ -441,13 +526,13 @@ lib.callback.register('imrp_apartments:server:getKeys', function(source, apartme
     local isOwner, apartmentId = IsOwner(citizenid, apartmentKey)
     if not isOwner then return nil end
 
-    local keys = MySQL.query.await('SELECT ak.citizenid, ak.key_type, ak.granted_date FROM apartment_keys ak WHERE ak.apartment_id = ?', { apartmentId })
+    local keys = SafeQuery('SELECT ak.citizenid, ak.key_type, ak.granted_date FROM apartment_keys ak WHERE ak.apartment_id = ?', { apartmentId })
     if not keys then return {} end
 
     -- Enrich with player names
     for i, key in ipairs(keys) do
-        local targetPlayer = MySQL.single.await('SELECT JSON_EXTRACT(charinfo, "$.firstname") as firstname, JSON_EXTRACT(charinfo, "$.lastname") as lastname FROM players WHERE citizenid = ?', { key.citizenid })
-        if targetPlayer then
+        local ok, targetPlayer = pcall(MySQL.single.await, 'SELECT JSON_EXTRACT(charinfo, "$.firstname") as firstname, JSON_EXTRACT(charinfo, "$.lastname") as lastname FROM players WHERE citizenid = ?', { key.citizenid })
+        if ok and targetPlayer then
             keys[i].name = ('%s %s'):format(
                 targetPlayer.firstname and targetPlayer.firstname:gsub('"', '') or 'Unknown',
                 targetPlayer.lastname and targetPlayer.lastname:gsub('"', '') or ''
@@ -477,14 +562,17 @@ lib.callback.register('imrp_apartments:server:giveKey', function(source, apartme
     local targetCitizenId = targetPlayer.PlayerData.citizenid
 
     -- Check if key already exists
-    local existing = MySQL.scalar.await('SELECT COUNT(*) FROM apartment_keys WHERE apartment_id = ? AND citizenid = ?', { apartmentId, targetCitizenId })
+    local existing = SafeScalar('SELECT COUNT(*) FROM apartment_keys WHERE apartment_id = ? AND citizenid = ?', { apartmentId, targetCitizenId })
     if existing and existing > 0 then
         return { success = false, message = IMRP.Locale('key_already_exists') }
     end
 
-    MySQL.insert('INSERT INTO apartment_keys (apartment_id, citizenid, key_type) VALUES (?, ?, ?)', {
+    local insertId = SafeInsert('INSERT INTO apartment_keys (apartment_id, citizenid, key_type) VALUES (?, ?, ?)', {
         apartmentId, targetCitizenId, keyType or 'permanent'
     })
+    if not insertId then
+        return { success = false, message = 'Database error' }
+    end
 
     LogAction(citizenid, apartmentId, 'give_key', ('To: %s | Type: %s'):format(targetCitizenId, keyType))
 
@@ -506,7 +594,10 @@ lib.callback.register('imrp_apartments:server:removeKey', function(source, apart
         return { success = false, message = IMRP.Locale('not_owner') }
     end
 
-    MySQL.query('DELETE FROM apartment_keys WHERE apartment_id = ? AND citizenid = ?', { apartmentId, targetCitizenId })
+    local delOk = pcall(MySQL.query.await, 'DELETE FROM apartment_keys WHERE apartment_id = ? AND citizenid = ?', { apartmentId, targetCitizenId })
+    if not delOk then
+        return { success = false, message = 'Database error' }
+    end
 
     LogAction(citizenid, apartmentId, 'remove_key', ('From: %s'):format(targetCitizenId))
 
@@ -535,14 +626,17 @@ lib.callback.register('imrp_apartments:server:inviteGuest', function(source, apa
     local targetCitizenId = targetPlayer.PlayerData.citizenid
 
     -- Check if already a guest
-    local existing = MySQL.scalar.await('SELECT COUNT(*) FROM apartment_guests WHERE apartment_id = ? AND citizenid = ?', { apartmentId, targetCitizenId })
+    local existing = SafeScalar('SELECT COUNT(*) FROM apartment_guests WHERE apartment_id = ? AND citizenid = ?', { apartmentId, targetCitizenId })
     if existing and existing > 0 then
         return { success = false, message = IMRP.Locale('already_guest') }
     end
 
-    MySQL.insert('INSERT INTO apartment_guests (apartment_id, citizenid) VALUES (?, ?)', {
+    local insertId = SafeInsert('INSERT INTO apartment_guests (apartment_id, citizenid) VALUES (?, ?)', {
         apartmentId, targetCitizenId
     })
+    if not insertId then
+        return { success = false, message = 'Database error' }
+    end
 
     LogAction(citizenid, apartmentId, 'invite_guest', ('Guest: %s'):format(targetCitizenId))
 
@@ -566,12 +660,12 @@ lib.callback.register('imrp_apartments:server:getGuests', function(source, apart
     local isOwner, apartmentId = IsOwner(citizenid, apartmentKey)
     if not isOwner then return nil end
 
-    local guests = MySQL.query.await('SELECT citizenid FROM apartment_guests WHERE apartment_id = ?', { apartmentId })
+    local guests = SafeQuery('SELECT citizenid FROM apartment_guests WHERE apartment_id = ?', { apartmentId })
     if not guests then return {} end
 
     for i, guest in ipairs(guests) do
-        local targetPlayer = MySQL.single.await('SELECT JSON_EXTRACT(charinfo, "$.firstname") as firstname, JSON_EXTRACT(charinfo, "$.lastname") as lastname FROM players WHERE citizenid = ?', { guest.citizenid })
-        if targetPlayer then
+        local ok, targetPlayer = pcall(MySQL.single.await, 'SELECT JSON_EXTRACT(charinfo, "$.firstname") as firstname, JSON_EXTRACT(charinfo, "$.lastname") as lastname FROM players WHERE citizenid = ?', { guest.citizenid })
+        if ok and targetPlayer then
             guests[i].name = ('%s %s'):format(
                 targetPlayer.firstname and targetPlayer.firstname:gsub('"', '') or 'Unknown',
                 targetPlayer.lastname and targetPlayer.lastname:gsub('"', '') or ''
@@ -593,7 +687,10 @@ lib.callback.register('imrp_apartments:server:removeGuest', function(source, apa
         return { success = false, message = IMRP.Locale('not_owner') }
     end
 
-    MySQL.query('DELETE FROM apartment_guests WHERE apartment_id = ? AND citizenid = ?', { apartmentId, targetCitizenId })
+    local delOk = pcall(MySQL.query.await, 'DELETE FROM apartment_guests WHERE apartment_id = ? AND citizenid = ?', { apartmentId, targetCitizenId })
+    if not delOk then
+        return { success = false, message = 'Database error' }
+    end
 
     LogAction(citizenid, apartmentId, 'remove_guest', ('Guest: %s'):format(targetCitizenId))
 
@@ -617,15 +714,18 @@ lib.callback.register('imrp_apartments:server:storeVehicle', function(source, ap
     end
 
     -- Verify vehicle ownership
-    local vehicleOwned = MySQL.scalar.await('SELECT COUNT(*) FROM player_vehicles WHERE citizenid = ? AND plate = ?', { citizenid, plate })
+    local vehicleOwned = SafeScalar('SELECT COUNT(*) FROM player_vehicles WHERE citizenid = ? AND plate = ?', { citizenid, plate })
     if not vehicleOwned or vehicleOwned == 0 then
         return { success = false, message = IMRP.Locale('not_your_vehicle') }
     end
 
     -- Update vehicle garage location
-    MySQL.update('UPDATE player_vehicles SET garage = ?, state = 1 WHERE citizenid = ? AND plate = ?', {
+    local updated = SafeUpdate('UPDATE player_vehicles SET garage = ?, state = 1 WHERE citizenid = ? AND plate = ?', {
         ('apartment_%s'):format(apartmentId), citizenid, plate
     })
+    if not updated then
+        return { success = false, message = 'Database error' }
+    end
 
     LogAction(citizenid, apartmentId, 'store_vehicle', ('Plate: %s'):format(plate))
 
@@ -642,7 +742,7 @@ lib.callback.register('imrp_apartments:server:getStoredVehicles', function(sourc
     local hasAccess, apartmentId, _ = HasAccessToApartment(citizenid, apartmentKey)
     if not hasAccess then return nil end
 
-    local vehicles = MySQL.query.await('SELECT vehicle, plate, mods FROM player_vehicles WHERE citizenid = ? AND garage = ? AND state = 1', {
+    local vehicles = SafeQuery('SELECT vehicle, plate, mods FROM player_vehicles WHERE citizenid = ? AND garage = ? AND state = 1', {
         citizenid, ('apartment_%s'):format(apartmentId)
     })
 
@@ -673,9 +773,12 @@ lib.callback.register('imrp_apartments:server:retrieveVehicle', function(source,
         return { success = false, message = IMRP.Locale('no_access') }
     end
 
-    MySQL.update('UPDATE player_vehicles SET state = 0 WHERE citizenid = ? AND plate = ? AND garage = ?', {
+    local updated = SafeUpdate('UPDATE player_vehicles SET state = 0 WHERE citizenid = ? AND plate = ? AND garage = ?', {
         citizenid, plate, ('apartment_%s'):format(apartmentId)
     })
+    if not updated then
+        return { success = false, message = 'Database error' }
+    end
 
     LogAction(citizenid, apartmentId, 'retrieve_vehicle', ('Plate: %s'):format(plate))
 
@@ -705,9 +808,11 @@ end)
 lib.callback.register('imrp_apartments:server:toggleLock', function(source, apartmentKey)
     local src = source
     local player = QBX:GetPlayer(src)
-    if not player then return { success = false } end
+    if not player then return { success = false, message = 'Player not found' } end
 
     local citizenid = player.PlayerData.citizenid
+    if not citizenid then return { success = false, message = 'Citizen ID not found' } end
+
     local hasAccess, _, _ = HasAccessToApartment(citizenid, apartmentKey)
     if not hasAccess then
         return { success = false, message = IMRP.Locale('no_access') }

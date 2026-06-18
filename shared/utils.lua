@@ -11,12 +11,20 @@ IMRP = IMRP or {}
 local Locales = {}
 
 function IMRP.LoadLocale(lang)
-    local file = LoadResourceFile(GetCurrentResourceName(), ('locales/%s.lua'):format(lang or 'en'))
-    if file then
-        local fn = load(file)
-        if fn then
-            fn()
-        end
+    local path = ('locales/%s.lua'):format(lang or 'en')
+    local file = LoadResourceFile(GetCurrentResourceName(), path)
+    if not file then
+        print(('[imrp_apartments] Locale file not found: %s'):format(path))
+        return
+    end
+    local fn, parseErr = load(file)
+    if not fn then
+        print(('[imrp_apartments] Failed to parse locale %s: %s'):format(path, tostring(parseErr)))
+        return
+    end
+    local ok, runErr = pcall(fn)
+    if not ok then
+        print(('[imrp_apartments] Failed to execute locale %s: %s'):format(path, tostring(runErr)))
     end
 end
 
@@ -66,7 +74,10 @@ end
 -----------------------------------------------------------
 function IMRP.FormatDate(timestamp)
     if not timestamp then return 'N/A' end
-    return os.date('%Y-%m-%d %H:%M', timestamp)
+    if type(timestamp) == 'string' then return timestamp end
+    local ok, result = pcall(os.date, '%Y-%m-%d %H:%M', timestamp)
+    if not ok then return 'N/A' end
+    return result
 end
 
 -----------------------------------------------------------
@@ -74,8 +85,19 @@ end
 -----------------------------------------------------------
 function IMRP.DaysRemaining(expireTimestamp)
     if not expireTimestamp then return 0 end
-    local now = os.time()
-    local diff = expireTimestamp - now
+
+    local expireTime = expireTimestamp
+    if type(expireTimestamp) == 'string' then
+        local y, mo, d, h, mi, s = expireTimestamp:match('(%d+)-(%d+)-(%d+)%s+(%d+):(%d+):(%d+)')
+        if y then
+            expireTime = os.time({year=tonumber(y), month=tonumber(mo), day=tonumber(d), hour=tonumber(h), min=tonumber(mi), sec=tonumber(s)})
+        else
+            return 0
+        end
+    end
+
+    if type(expireTime) ~= 'number' then return 0 end
+    local diff = expireTime - os.time()
     if diff <= 0 then return 0 end
     return math.ceil(diff / 86400)
 end
@@ -118,6 +140,7 @@ end
 -- Deep Copy Table
 -----------------------------------------------------------
 function IMRP.DeepCopy(orig)
+    if type(orig) ~= 'table' then return orig end
     local copy = {}
     for k, v in pairs(orig) do
         if type(v) == 'table' then
@@ -132,7 +155,7 @@ end
 -----------------------------------------------------------
 -- Debug Print
 -----------------------------------------------------------
-Config.Debug = false
+if Config.Debug == nil then Config.Debug = false end
 
 function IMRP.Debug(...)
     if Config.Debug then

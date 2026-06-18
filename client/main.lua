@@ -229,12 +229,19 @@ function OpenApartmentStash()
     local slots = typeData and typeData.stash_slots or Config.DefaultStashSlots
     local weight = typeData and typeData.stash_weight or Config.DefaultStashWeight
 
-    exports.ox_inventory:openInventory('stash', {
+    local apt = Config.Apartments[CurrentApartment.key]
+    local label = apt and apt.label or 'Apartment'
+
+    local ok, err = pcall(exports.ox_inventory.openInventory, exports.ox_inventory, 'stash', {
         id = stashId,
         slots = slots,
         weight = weight,
-        label = ('%s Stash'):format(Config.Apartments[CurrentApartment.key].label)
+        label = ('%s Stash'):format(label)
     })
+    if not ok then
+        print(('[imrp_apartments] Failed to open stash %s: %s'):format(stashId, tostring(err)))
+        lib.notify({ title = 'Apartments', description = 'Failed to open stash', type = 'error', position = Config.Notification.position })
+    end
 end
 
 -----------------------------------------------------------
@@ -562,13 +569,20 @@ function ShowApartmentInfo()
     if not CurrentApartment then return end
 
     lib.callback('imrp_apartments:server:getApartmentInfo', false, function(info)
-        if not info then return end
+        if not info then
+            lib.notify({ title = 'Apartments', description = 'Could not get apartment info', type = 'error', position = Config.Notification.position })
+            return
+        end
+
+        local apt = Config.Apartments[CurrentApartment.key]
+        if not apt then return end
+        local typeData = Config.ApartmentTypes[apt.type]
 
         SendNUIMessage({
             action = 'showApartmentInfo',
             data = {
-                name = Config.Apartments[CurrentApartment.key].label,
-                type = Config.ApartmentTypes[Config.Apartments[CurrentApartment.key].type].label,
+                name = apt.label,
+                type = typeData and typeData.label or apt.type,
                 id = CurrentApartment.id,
                 bucket = CurrentApartment.bucket,
                 purchase_date = info.purchase_date,
@@ -584,7 +598,15 @@ end
 
 function ShowApartmentInfoExternal(apartmentKey)
     local apt = Config.Apartments[apartmentKey]
+    if not apt then
+        lib.notify({ title = 'Apartments', description = 'Apartment not found', type = 'error', position = Config.Notification.position })
+        return
+    end
     local typeData = Config.ApartmentTypes[apt.type]
+    if not typeData then
+        lib.notify({ title = 'Apartments', description = 'Apartment type not configured', type = 'error', position = Config.Notification.position })
+        return
+    end
 
     SendNUIMessage({
         action = 'showApartmentInfo',
