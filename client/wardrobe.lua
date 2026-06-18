@@ -11,7 +11,7 @@ function OpenWardrobe()
 
     local currentApt = exports['imrp_apartments']:GetCurrentApartment()
     if not currentApt then
-        lib.notify({ title = 'Apartments', description = IMRP.Locale('not_in_apartment'), type = 'error', position = Config.Notification.position })
+        IMRP.Notify(IMRP.Locale('not_in_apartment'), 'error')
         return
     end
 
@@ -22,7 +22,7 @@ function OpenWardrobe()
     elseif Config.AppearanceSystem == 'qb-clothing' then
         OpenQBWardrobe()
     else
-        lib.notify({ title = 'Apartments', description = IMRP.Locale('wardrobe_not_configured'), type = 'error', position = Config.Notification.position })
+        IMRP.Notify(IMRP.Locale('wardrobe_not_configured'), 'error')
     end
 end
 
@@ -110,9 +110,9 @@ function SaveOutfit()
 
     lib.callback('imrp_apartments:server:saveOutfit', false, function(result)
         if result and result.success then
-            lib.notify({ title = 'Wardrobe', description = IMRP.Locale('outfit_saved'), type = 'success', position = Config.Notification.position })
+            IMRP.Notify(IMRP.Locale('outfit_saved'), 'success')
         else
-            lib.notify({ title = 'Wardrobe', description = result and result.message or IMRP.Locale('outfit_save_failed'), type = 'error', position = Config.Notification.position })
+            IMRP.Notify(result and result.message or IMRP.Locale('outfit_save_failed'), 'error')
         end
     end, input[1])
 end
@@ -123,7 +123,7 @@ end
 function LoadOutfit()
     lib.callback('imrp_apartments:server:getOutfits', false, function(outfits)
         if not outfits or #outfits == 0 then
-            lib.notify({ title = 'Wardrobe', description = IMRP.Locale('no_outfits'), type = 'info', position = Config.Notification.position })
+            IMRP.Notify(IMRP.Locale('no_outfits'), 'info')
             return
         end
 
@@ -158,7 +158,7 @@ end
 function DeleteOutfit()
     lib.callback('imrp_apartments:server:getOutfits', false, function(outfits)
         if not outfits or #outfits == 0 then
-            lib.notify({ title = 'Wardrobe', description = IMRP.Locale('no_outfits'), type = 'info', position = Config.Notification.position })
+            IMRP.Notify(IMRP.Locale('no_outfits'), 'info')
             return
         end
 
@@ -178,7 +178,7 @@ function DeleteOutfit()
                     if alert == 'confirm' then
                         lib.callback('imrp_apartments:server:deleteOutfit', false, function(result)
                             if result and result.success then
-                                lib.notify({ title = 'Wardrobe', description = IMRP.Locale('outfit_deleted'), type = 'success', position = Config.Notification.position })
+                                IMRP.Notify(IMRP.Locale('outfit_deleted'), 'success')
                             end
                         end, outfit.id)
                     end

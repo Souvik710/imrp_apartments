@@ -69,13 +69,13 @@ end
 -----------------------------------------------------------
 function EnterApartment(apartmentKey, apartmentData)
     if InsideApartment then
-        lib.notify({ title = 'Apartments', description = IMRP.Locale('already_inside'), type = 'error', position = Config.Notification.position })
+        IMRP.Notify(IMRP.Locale('already_inside'), 'error')
         return
     end
 
     lib.callback('imrp_apartments:server:enterApartment', false, function(result)
         if not result or not result.success then
-            lib.notify({ title = 'Apartments', description = result and result.message or IMRP.Locale('enter_failed'), type = 'error', position = Config.Notification.position })
+            IMRP.Notify(result and result.message or IMRP.Locale('enter_failed'), 'error')
             return
         end
 
@@ -102,7 +102,7 @@ function EnterApartment(apartmentKey, apartmentData)
         Wait(500)
         DoScreenFadeIn(500)
 
-        lib.notify({ title = 'Apartments', description = IMRP.Locale('entered_apartment', apt.label), type = 'success', position = Config.Notification.position })
+        IMRP.Notify(IMRP.Locale('entered_apartment', apt.label), 'success')
 
         SetupInteriorTargets(apartmentKey)
     end, apartmentKey)
@@ -116,7 +116,7 @@ function ExitApartment()
 
     lib.callback('imrp_apartments:server:exitApartment', false, function(result)
         if not result or not result.success then
-            lib.notify({ title = 'Apartments', description = IMRP.Locale('exit_failed'), type = 'error', position = Config.Notification.position })
+            IMRP.Notify(IMRP.Locale('exit_failed'), 'error')
             return
         end
 
@@ -139,7 +139,7 @@ function ExitApartment()
         Wait(500)
         DoScreenFadeIn(500)
 
-        lib.notify({ title = 'Apartments', description = IMRP.Locale('exited_apartment'), type = 'success', position = Config.Notification.position })
+        IMRP.Notify(IMRP.Locale('exited_apartment'), 'success')
     end)
 end
 
@@ -242,7 +242,7 @@ end
 -----------------------------------------------------------
 RegisterCommand('apartment', function()
     if not InsideApartment and not IsNearAnyApartment() then
-        lib.notify({ title = 'Apartments', description = IMRP.Locale('not_near_apartment'), type = 'error', position = Config.Notification.position })
+        IMRP.Notify(IMRP.Locale('not_near_apartment'), 'error')
         return
     end
 
@@ -470,10 +470,10 @@ function BuyApartment(apartmentKey)
 
     lib.callback('imrp_apartments:server:buyApartment', false, function(result)
         if result and result.success then
-            lib.notify({ title = 'Apartments', description = IMRP.Locale('purchase_success', Config.Apartments[apartmentKey].label), type = 'success', position = Config.Notification.position })
+            IMRP.Notify(IMRP.Locale('purchase_success', Config.Apartments[apartmentKey].label), 'success')
             SendNUIMessage({ action = 'showNotification', data = { type = 'success', message = IMRP.Locale('purchase_success', Config.Apartments[apartmentKey].label) } })
         else
-            lib.notify({ title = 'Apartments', description = result and result.message or IMRP.Locale('purchase_failed'), type = 'error', position = Config.Notification.position })
+            IMRP.Notify(result and result.message or IMRP.Locale('purchase_failed'), 'error')
         end
     end, apartmentKey, 'buy')
 end
@@ -493,9 +493,9 @@ function RentApartment(apartmentKey)
 
     lib.callback('imrp_apartments:server:buyApartment', false, function(result)
         if result and result.success then
-            lib.notify({ title = 'Apartments', description = IMRP.Locale('rental_success', Config.Apartments[apartmentKey].label), type = 'success', position = Config.Notification.position })
+            IMRP.Notify(IMRP.Locale('rental_success', Config.Apartments[apartmentKey].label), 'success')
         else
-            lib.notify({ title = 'Apartments', description = result and result.message or IMRP.Locale('rental_failed'), type = 'error', position = Config.Notification.position })
+            IMRP.Notify(result and result.message or IMRP.Locale('rental_failed'), 'error')
         end
     end, apartmentKey, 'rent')
 end
@@ -520,9 +520,9 @@ function RenewApartment()
 
     lib.callback('imrp_apartments:server:renewApartment', false, function(result)
         if result and result.success then
-            lib.notify({ title = 'Apartments', description = IMRP.Locale('renew_success'), type = 'success', position = Config.Notification.position })
+            IMRP.Notify(IMRP.Locale('renew_success'), 'success')
         else
-            lib.notify({ title = 'Apartments', description = result and result.message or IMRP.Locale('renew_failed'), type = 'error', position = Config.Notification.position })
+            IMRP.Notify(result and result.message or IMRP.Locale('renew_failed'), 'error')
         end
     end, CurrentApartment.key)
 end
@@ -547,10 +547,10 @@ function SellApartment()
 
     lib.callback('imrp_apartments:server:sellApartment', false, function(result)
         if result and result.success then
-            lib.notify({ title = 'Apartments', description = IMRP.Locale('sell_success', IMRP.FormatCurrency(sellPrice)), type = 'success', position = Config.Notification.position })
+            IMRP.Notify(IMRP.Locale('sell_success', IMRP.FormatCurrency(sellPrice)), 'success')
             ExitApartment()
         else
-            lib.notify({ title = 'Apartments', description = result and result.message or IMRP.Locale('sell_failed'), type = 'error', position = Config.Notification.position })
+            IMRP.Notify(result and result.message or IMRP.Locale('sell_failed'), 'error')
         end
     end, CurrentApartment.key)
 end
@@ -667,9 +667,9 @@ function GiveKey()
 
     lib.callback('imrp_apartments:server:giveKey', false, function(result)
         if result and result.success then
-            lib.notify({ title = 'Apartments', description = IMRP.Locale('key_given'), type = 'success', position = Config.Notification.position })
+            IMRP.Notify(IMRP.Locale('key_given'), 'success')
         else
-            lib.notify({ title = 'Apartments', description = result and result.message or IMRP.Locale('key_give_failed'), type = 'error', position = Config.Notification.position })
+            IMRP.Notify(result and result.message or IMRP.Locale('key_give_failed'), 'error')
         end
     end, CurrentApartment.key, input[1], input[2])
 end
@@ -685,9 +685,9 @@ function DuplicateKey()
 
     lib.callback('imrp_apartments:server:duplicateKey', false, function(result)
         if result and result.success then
-            lib.notify({ title = 'Apartments', description = IMRP.Locale('key_duplicated'), type = 'success', position = Config.Notification.position })
+            IMRP.Notify(IMRP.Locale('key_duplicated'), 'success')
         else
-            lib.notify({ title = 'Apartments', description = result and result.message or IMRP.Locale('key_duplicate_failed'), type = 'error', position = Config.Notification.position })
+            IMRP.Notify(result and result.message or IMRP.Locale('key_duplicate_failed'), 'error')
         end
     end, CurrentApartment.key, input[1])
 end
@@ -704,9 +704,9 @@ function RemoveKey(targetCitizenId)
 
     lib.callback('imrp_apartments:server:removeKey', false, function(result)
         if result and result.success then
-            lib.notify({ title = 'Apartments', description = IMRP.Locale('key_removed'), type = 'success', position = Config.Notification.position })
+            IMRP.Notify(IMRP.Locale('key_removed'), 'success')
         else
-            lib.notify({ title = 'Apartments', description = result and result.message or IMRP.Locale('key_remove_failed'), type = 'error', position = Config.Notification.position })
+            IMRP.Notify(result and result.message or IMRP.Locale('key_remove_failed'), 'error')
         end
     end, CurrentApartment.key, targetCitizenId)
 end
@@ -725,9 +725,9 @@ function InvitePlayer()
 
     lib.callback('imrp_apartments:server:inviteGuest', false, function(result)
         if result and result.success then
-            lib.notify({ title = 'Apartments', description = IMRP.Locale('guest_invited'), type = 'success', position = Config.Notification.position })
+            IMRP.Notify(IMRP.Locale('guest_invited'), 'success')
         else
-            lib.notify({ title = 'Apartments', description = result and result.message or IMRP.Locale('invite_failed'), type = 'error', position = Config.Notification.position })
+            IMRP.Notify(result and result.message or IMRP.Locale('invite_failed'), 'error')
         end
     end, CurrentApartment.key, input[1])
 end
@@ -737,7 +737,7 @@ function RemoveGuest()
 
     lib.callback('imrp_apartments:server:getGuests', false, function(guests)
         if not guests or #guests == 0 then
-            lib.notify({ title = 'Apartments', description = IMRP.Locale('no_guests'), type = 'info', position = Config.Notification.position })
+            IMRP.Notify(IMRP.Locale('no_guests'), 'info')
             return
         end
 
@@ -749,9 +749,9 @@ function RemoveGuest()
                 onSelect = function()
                     lib.callback('imrp_apartments:server:removeGuest', false, function(result)
                         if result and result.success then
-                            lib.notify({ title = 'Apartments', description = IMRP.Locale('guest_removed'), type = 'success', position = Config.Notification.position })
+                            IMRP.Notify(IMRP.Locale('guest_removed'), 'success')
                         else
-                            lib.notify({ title = 'Apartments', description = IMRP.Locale('guest_remove_failed'), type = 'error', position = Config.Notification.position })
+                            IMRP.Notify(IMRP.Locale('guest_remove_failed'), 'error')
                         end
                     end, CurrentApartment.key, guest.citizenid)
                 end
@@ -774,7 +774,7 @@ end
 RegisterNetEvent('imrp_apartments:client:toggleLock', function(locked)
     if not CurrentApartment then return end
     local msg = locked and IMRP.Locale('door_locked') or IMRP.Locale('door_unlocked')
-    lib.notify({ title = 'Apartments', description = msg, type = 'info', position = Config.Notification.position })
+    IMRP.Notify(msg, 'info')
 end)
 
 -----------------------------------------------------------
