@@ -30,7 +30,7 @@ lib.addCommand('giveapartment', {
         { name = 'id', type = 'number', help = 'Player server ID' },
         { name = 'apartment', type = 'string', help = 'Apartment key name' }
     },
-    restricted = false
+    restricted = 'group.admin'
 }, function(source, args)
     if not HasAdminPermission(source) then
         lib.notify(source, { title = 'Apartments', description = 'No permission', type = 'error' })
@@ -41,7 +41,7 @@ lib.addCommand('giveapartment', {
     local apartmentKey = args.apartment
 
     if not Config.Apartments[apartmentKey] then
-        lib.notify(source, { title = 'Apartments', description = 'Invalid apartment key: ' .. apartmentKey, type = 'error' })
+        lib.notify(source, { title = 'Apartments', description = 'Invalid apartment key', type = 'error' })
         return
     end
 
@@ -95,7 +95,7 @@ lib.addCommand('removeapartment', {
         { name = 'id', type = 'number', help = 'Player server ID' },
         { name = 'apartment', type = 'string', help = 'Apartment key name' }
     },
-    restricted = false
+    restricted = 'group.admin'
 }, function(source, args)
     if not HasAdminPermission(source) then
         lib.notify(source, { title = 'Apartments', description = 'No permission', type = 'error' })
@@ -133,7 +133,7 @@ lib.addCommand('resetapartment', {
     params = {
         { name = 'apartment_id', type = 'string', help = 'Apartment ID (e.g., integrity_way_1001)' }
     },
-    restricted = false
+    restricted = 'group.admin'
 }, function(source, args)
     if not HasAdminPermission(source) then
         lib.notify(source, { title = 'Apartments', description = 'No permission', type = 'error' })
@@ -143,7 +143,7 @@ lib.addCommand('resetapartment', {
     local apartmentId = args.apartment_id
 
     if not OwnedApartments[apartmentId] then
-        lib.notify(source, { title = 'Apartments', description = 'Apartment ID not found: ' .. apartmentId, type = 'error' })
+        lib.notify(source, { title = 'Apartments', description = 'Apartment ID not found', type = 'error' })
         return
     end
 
@@ -151,7 +151,7 @@ lib.addCommand('resetapartment', {
     CleanupApartment(apartmentId)
     LogAction(citizenid, apartmentId, 'admin_reset', ('By: %s'):format(GetPlayerName(source) or 'Console'))
 
-    lib.notify(source, { title = 'Apartments', description = ('Reset apartment: %s'):format(apartmentId), type = 'success' })
+    lib.notify(source, { title = 'Apartments', description = 'Apartment reset successfully', type = 'success' })
 end)
 
 -----------------------------------------------------------
@@ -162,7 +162,7 @@ lib.addCommand('expireapartment', {
     params = {
         { name = 'apartment_id', type = 'string', help = 'Apartment ID (e.g., integrity_way_1001)' }
     },
-    restricted = false
+    restricted = 'group.admin'
 }, function(source, args)
     if not HasAdminPermission(source) then
         lib.notify(source, { title = 'Apartments', description = 'No permission', type = 'error' })
@@ -172,7 +172,7 @@ lib.addCommand('expireapartment', {
     local apartmentId = args.apartment_id
 
     if not OwnedApartments[apartmentId] then
-        lib.notify(source, { title = 'Apartments', description = 'Apartment ID not found: ' .. apartmentId, type = 'error' })
+        lib.notify(source, { title = 'Apartments', description = 'Apartment ID not found', type = 'error' })
         return
     end
 
@@ -184,7 +184,7 @@ lib.addCommand('expireapartment', {
 
     LogAction(citizenid, apartmentId, 'admin_expire', ('By: %s'):format(GetPlayerName(source) or 'Console'))
 
-    lib.notify(source, { title = 'Apartments', description = ('Expired apartment: %s'):format(apartmentId), type = 'success' })
+    lib.notify(source, { title = 'Apartments', description = 'Apartment expired successfully', type = 'success' })
 end)
 
 -----------------------------------------------------------
@@ -192,7 +192,7 @@ end)
 -----------------------------------------------------------
 lib.addCommand('apartmentlist', {
     help = 'List all active apartments (Admin)',
-    restricted = false
+    restricted = 'group.admin'
 }, function(source)
     if not HasAdminPermission(source) then
         lib.notify(source, { title = 'Apartments', description = 'No permission', type = 'error' })

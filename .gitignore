@@ -1,0 +1,19 @@
+# Environment and secrets
+.env
+.env.*
+*.secret
+secrets.lua
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Debug logs
+*.log
+debug/
