@@ -1,426 +1,793 @@
-local QBCore = exports['qb-core']:GetCoreObject()
-local PlayerData = {}
-local insideApartment = nil
+-----------------------------------------------------------
+-- IMRP Apartments - Client Main
+-- Author: Ragna | Immortal Roleplay
+-----------------------------------------------------------
 
--- Initialize player data
+local QBX = exports['qbx_core']
+local PlayerData = {}
+local CurrentApartment = nil
+local InsideApartment = false
+local CurrentBucket = 0
+
+-----------------------------------------------------------
+-- Initialize
+-----------------------------------------------------------
 RegisterNetEvent('QBCore:Client:OnPlayerLoaded', function()
-    PlayerData = QBCore.Functions.GetPlayerData()
-    SetupApartmentEntrances()
-    SetupApartmentNPC()
+    PlayerData = QBX:GetPlayerData()
+    InitBlips()
 end)
 
 RegisterNetEvent('QBCore:Client:OnPlayerUnload', function()
     PlayerData = {}
-    RemoveApartmentTargets()
+    CurrentApartment = nil
+    InsideApartment = false
+    RemoveBlips()
 end)
 
--- Setup apartment entrances
-function SetupApartmentEntrances()
-    for apartment_id, apartment in pairs(Config.Apartments) do
-        local entrance = apartment.location.entrance
-        
-        exports.ox_target:addSphereZone({
-            coords = entrance,
-            radius = 1.5,
-            options = {
-                {
-                    name = 'apartment_enter_' .. apartment_id,
-                    label = 'Enter Apartment',
-                    icon = 'fa-solid fa-door-open',
-                    onSelect = function()
-                        EnterApartment(apartment_id)
-                    end,
-                    distance = 2.0
-                }
-            },
-            debug = false,
-            useZ = true
-        })
+AddEventHandler('onResourceStart', function(resource)
+    if resource ~= GetCurrentResourceName() then return end
+    PlayerData = QBX:GetPlayerData()
+    if PlayerData and PlayerData.citizenid then
+        InitBlips()
+    end
+end)
+
+-----------------------------------------------------------
+-- Blips
+-----------------------------------------------------------
+local Blips = {}
+
+function InitBlips()
+    RemoveBlips()
+    if not Config.Blip.enabled then return end
+
+    for key, apt in pairs(Config.Apartments) do
+        local blip = AddBlipForCoord(apt.entrance.x, apt.entrance.y, apt.entrance.z)
+        SetBlipSprite(blip, Config.Blip.sprite)
+        SetBlipDisplay(blip, 4)
+        SetBlipScale(blip, Config.Blip.scale)
+        SetBlipColour(blip, Config.Blip.color)
+        SetBlipAsShortRange(blip, true)
+        BeginTextCommandSetBlipName('STRING')
+        AddTextComponentSubstringPlayerName(apt.blip_label or apt.label)
+        EndTextCommandSetBlipName(blip)
+        Blips[key] = blip
     end
 end
 
--- Setup apartment NPC
-function SetupApartmentNPC()
-    local npc = Config.NPC
-    local model = npc.model
-    
-    if not lib.requestModel(model, 5000) then
-        print(string.format('[imrp_apartments] Failed to load NPC model: %s', model))
+function RemoveBlips()
+    for key, blip in pairs(Blips) do
+        if DoesBlipExist(blip) then
+            RemoveBlip(blip)
+        end
+    end
+    Blips = {}
+end
+
+-----------------------------------------------------------
+-- Enter Apartment
+-----------------------------------------------------------
+function EnterApartment(apartmentKey, apartmentData)
+    if InsideApartment then
+        lib.notify({ title = 'Apartments', description = IMRP.Locale('already_inside'), type = 'error', position = Config.Notification.position })
         return
     end
 
-    local npc_ped = CreatePed(4, model, npc.coords.x, npc.coords.y, npc.coords.z, npc.coords.w, false, true)
-    if not npc_ped or npc_ped == 0 then
-        print('[imrp_apartments] Failed to create NPC ped')
-        return
-    end
-    SetEntityInvincible(npc_ped, true)
-    SetBlockingOfNonTemporaryEvents(npc_ped, true)
-    FreezeEntityPosition(npc_ped, true)
-    SetPedCanRagdoll(npc_ped, false)
-    
-    exports.ox_target:addLocalEntity(npc_ped, {
-        {
-            name = 'apartment_manager',
-            label = 'Apartment Manager',
-            icon = 'fa-solid fa-building',
-            onSelect = function()
-                OpenApartmentMenu()
-            end,
-            distance = 2.0
+    lib.callback('imrp_apartments:server:enterApartment', false, function(result)
+        if not result or not result.success then
+            lib.notify({ title = 'Apartments', description = result and result.message or IMRP.Locale('enter_failed'), type = 'error', position = Config.Notification.position })
+            return
+        end
+
+        local apt = Config.Apartments[apartmentKey]
+        if not apt then return end
+
+        CurrentApartment = {
+            key = apartmentKey,
+            id = result.apartment_id,
+            bucket = result.bucket_id,
+            data = apartmentData
         }
-    })
+
+        DoScreenFadeOut(500)
+        Wait(500)
+
+        SetEntityCoords(cache.ped, apt.interior_coords.x, apt.interior_coords.y, apt.interior_coords.z, false, false, false, false)
+        SetEntityHeading(cache.ped, apt.interior_heading)
+        FreezeEntityPosition(cache.ped, false)
+
+        InsideApartment = true
+        CurrentBucket = result.bucket_id
+
+        Wait(500)
+        DoScreenFadeIn(500)
+
+        lib.notify({ title = 'Apartments', description = IMRP.Locale('entered_apartment', apt.label), type = 'success', position = Config.Notification.position })
+
+        SetupInteriorTargets(apartmentKey)
+    end, apartmentKey)
 end
 
--- Remove apartment targets
-function RemoveApartmentTargets()
-    for apartment_id, _ in pairs(Config.Apartments) do
-        exports.ox_target:removeZone('apartment_enter_' .. apartment_id)
-    end
-    exports.ox_target:removeLocalEntity('apartment_manager')
-end
+-----------------------------------------------------------
+-- Exit Apartment
+-----------------------------------------------------------
+function ExitApartment()
+    if not InsideApartment or not CurrentApartment then return end
 
--- Enter apartment function
-function EnterApartment(apartment_id)
-    if not apartment_id then
-        lib.notify({ title = 'Error', description = 'Invalid apartment ID', type = 'error' })
-        return
-    end
+    lib.callback('imrp_apartments:server:exitApartment', false, function(result)
+        if not result or not result.success then
+            lib.notify({ title = 'Apartments', description = IMRP.Locale('exit_failed'), type = 'error', position = Config.Notification.position })
+            return
+        end
 
-    local apartment = Config.Apartments[apartment_id]
-    if not apartment then
-        lib.notify({ title = 'Error', description = 'Apartment not found', type = 'error' })
-        return
-    end
+        local apt = Config.Apartments[CurrentApartment.key]
+        if not apt then return end
 
-    local owned = lib.callback.await('imrp_apartments:CheckOwnership', false, apartment_id)
-    if not owned then
-        lib.notify({ title = 'Access Denied', description = 'You do not own this apartment', type = 'error' })
-        return
-    end
+        DoScreenFadeOut(500)
+        Wait(500)
 
-    local interior_coords = apartment.location.interior
-    SetEntityCoords(PlayerPedId(), interior_coords.x, interior_coords.y, interior_coords.z, false, false, false, false)
+        SetEntityCoords(cache.ped, apt.entrance.x, apt.entrance.y, apt.entrance.z, false, false, false, false)
+        SetEntityHeading(cache.ped, apt.heading)
+        FreezeEntityPosition(cache.ped, false)
 
-    insideApartment = apartment_id
-    SetupInteriorInteractions(apartment_id, apartment)
+        RemoveInteriorTargets()
 
-    lib.notify({ title = 'Apartment', description = 'Welcome to your apartment!', type = 'success' })
-end
+        InsideApartment = false
+        CurrentApartment = nil
+        CurrentBucket = 0
 
--- Setup interior interactions
-function SetupInteriorInteractions(apartment_id, apartment)
-    -- Stash
-    exports.ox_target:addSphereZone({
-        coords = apartment.location.stash,
-        radius = 1.5,
-        options = {
-            {
-                name = 'apartment_stash_' .. apartment_id,
-                label = 'Open Stash',
-                icon = 'fa-solid fa-box',
-                onSelect = function()
-                    OpenApartmentStash(apartment_id)
-                end,
-                distance = 2.0
-            }
-        },
-        debug = false,
-        useZ = true
-    })
-    
-    -- Wardrobe
-    if Config.EnableWardrobe then
-        exports.ox_target:addSphereZone({
-            coords = apartment.location.wardrobe,
-            radius = 1.5,
-            options = {
-                {
-                    name = 'apartment_wardrobe_' .. apartment_id,
-                    label = 'Wardrobe',
-                    icon = 'fa-solid fa-tshirt',
-                    onSelect = function()
-                        OpenWardrobe(apartment_id)
-                    end,
-                    distance = 2.0
-                }
-            },
-            debug = false,
-            useZ = true
-        })
-    end
-    
-    -- Exit
-    exports.ox_target:addSphereZone({
-        coords = apartment.location.exit,
-        radius = 1.5,
-        options = {
-            {
-                name = 'apartment_exit_' .. apartment_id,
-                label = 'Exit Apartment',
-                icon = 'fa-solid fa-door-closed',
-                onSelect = function()
-                    ExitApartment(apartment_id, apartment)
-                end,
-                distance = 2.0
-            }
-        },
-        debug = false,
-        useZ = true
-    })
-end
+        Wait(500)
+        DoScreenFadeIn(500)
 
--- Open apartment stash
-function OpenApartmentStash(apartment_id)
-    local success, reason = lib.callback.await('imrp_apartments:OpenStash', false, apartment_id)
-    if not success then
-        lib.notify({ title = 'Error', description = reason or 'Failed to open stash', type = 'error' })
-    end
-end
-
--- Open wardrobe
-function OpenWardrobe(apartment_id)
-    local system = Config.AppearanceSystem
-    if not system or (system ~= 'illenium-appearance' and system ~= 'fivem-appearance') then
-        lib.notify({ title = 'Error', description = 'Appearance system not configured', type = 'error' })
-        return
-    end
-
-    local ok, err = pcall(function()
-        exports[system]:OpenWardrobe()
+        lib.notify({ title = 'Apartments', description = IMRP.Locale('exited_apartment'), type = 'success', position = Config.Notification.position })
     end)
-    if not ok then
-        print(string.format('[imrp_apartments] Wardrobe error (%s): %s', system, tostring(err)))
-        lib.notify({ title = 'Error', description = 'Failed to open wardrobe', type = 'error' })
-    end
 end
 
--- Exit apartment
-function ExitApartment(apartment_id, apartment)
-    if not apartment or not apartment.location or not apartment.location.exit then
-        lib.notify({ title = 'Error', description = 'Exit location not configured', type = 'error' })
-        return
-    end
+-----------------------------------------------------------
+-- Interior Targets (Exit, Stash, Wardrobe)
+-----------------------------------------------------------
+local InteriorZones = {}
 
-    local exit_coords = apartment.location.exit
+function SetupInteriorTargets(apartmentKey)
+    local apt = Config.Apartments[apartmentKey]
+    if not apt then return end
 
-    pcall(exports.ox_target.removeZone, exports.ox_target, 'apartment_stash_' .. apartment_id)
-    pcall(exports.ox_target.removeZone, exports.ox_target, 'apartment_wardrobe_' .. apartment_id)
-    pcall(exports.ox_target.removeZone, exports.ox_target, 'apartment_exit_' .. apartment_id)
+    local stashCoords = apt.interior_coords + apt.stash_offset
+    local wardrobeCoords = apt.interior_coords + apt.wardrobe_offset
 
-    SetEntityCoords(PlayerPedId(), exit_coords.x, exit_coords.y, exit_coords.z, false, false, false, false)
-
-    insideApartment = nil
-    lib.notify({ title = 'Apartment', description = 'You have left your apartment', type = 'info' })
-end
-
--- Open apartment menu (NPC interaction)
-function OpenApartmentMenu()
-    local options = {
-        {
-            title = 'View Available Apartments',
-            description = 'See all apartments for sale',
-            icon = 'building',
-            onSelect = function()
-                ShowAvailableApartments()
-            end
-        },
-        {
-            title = 'My Apartments',
-            description = 'View your owned apartments',
-            icon = 'home',
-            onSelect = function()
-                ShowMyApartments()
-            end
-        },
-        {
-            title = 'Rent Information',
-            description = 'Learn about renting',
-            icon = 'info-circle',
-            onSelect = function()
-                ShowRentInfo()
-            end
-        }
-    }
-    
-    lib.registerContext({
-        id = 'apartment_menu',
-        title = 'Apartment Manager',
-        options = options
-    })
-    lib.showContext('apartment_menu')
-end
-
--- Show available apartments
-function ShowAvailableApartments()
-    local options = {}
-    
-    for apartment_id, apartment in pairs(Config.Apartments) do
-        table.insert(options, {
-            title = apartment.label,
-            description = string.format('Price: $%s | Rent: $%s/week', 
-                FormatNumber(apartment.price), 
-                FormatNumber(apartment.rental_price)),
-            icon = 'home',
-            onSelect = function()
-                PurchaseApartment(apartment_id)
-            end
-        })
-    end
-    
-    lib.registerContext({
-        id = 'available_apartments',
-        title = 'Available Apartments',
-        options = options
-    })
-    lib.showContext('available_apartments')
-end
-
--- Show my apartments
-function ShowMyApartments()
-    local apartments = lib.callback.await('imrp_apartments:GetMyApartments', false)
-    if not apartments or #apartments == 0 then
-        lib.notify({ title = 'Info', description = 'You don\'t own any apartments', type = 'info' })
-        return
-    end
-
-    local options = {}
-    for _, apartment_data in ipairs(apartments) do
-        local apartment = Config.Apartments[apartment_data.apartment]
-        if apartment then
-            local days_remaining = GetDaysRemaining(apartment_data.expire_date)
-            options[#options + 1] = {
-                title = apartment.label,
-                description = string.format('Days remaining: %s', days_remaining),
-                icon = 'home',
+    InteriorZones[#InteriorZones + 1] = exports.ox_target:addSphereZone({
+        coords = apt.interior_coords,
+        radius = 1.5,
+        options = {
+            {
+                name = 'apartment_exit',
+                label = IMRP.Locale('exit_apartment'),
+                icon = 'fas fa-door-open',
                 onSelect = function()
-                    ShowApartmentOptions(apartment_data.apartment)
+                    ExitApartment()
+                end
+            },
+            {
+                name = 'apartment_logout',
+                label = IMRP.Locale('logout_here'),
+                icon = 'fas fa-sign-out-alt',
+                onSelect = function()
+                    TriggerServerEvent('imrp_apartments:server:logoutInApartment')
                 end
             }
+        }
+    })
+
+    InteriorZones[#InteriorZones + 1] = exports.ox_target:addSphereZone({
+        coords = stashCoords,
+        radius = 1.0,
+        options = {
+            {
+                name = 'apartment_stash',
+                label = IMRP.Locale('open_stash'),
+                icon = 'fas fa-box',
+                onSelect = function()
+                    OpenApartmentStash()
+                end
+            }
+        }
+    })
+
+    if Config.UseWardrobe then
+        InteriorZones[#InteriorZones + 1] = exports.ox_target:addSphereZone({
+            coords = wardrobeCoords,
+            radius = 1.0,
+            options = {
+                {
+                    name = 'apartment_wardrobe',
+                    label = IMRP.Locale('open_wardrobe'),
+                    icon = 'fas fa-tshirt',
+                    onSelect = function()
+                        OpenWardrobe()
+                    end
+                }
+            }
+        })
+    end
+end
+
+function RemoveInteriorTargets()
+    for _, zone in ipairs(InteriorZones) do
+        exports.ox_target:removeZone(zone)
+    end
+    InteriorZones = {}
+end
+
+-----------------------------------------------------------
+-- Open Stash
+-----------------------------------------------------------
+function OpenApartmentStash()
+    if not CurrentApartment then return end
+
+    local stashId = IMRP.GenerateStashId(CurrentApartment.id)
+    local typeData = IMRP.GetApartmentTypeData(CurrentApartment.key)
+    local slots = typeData and typeData.stash_slots or Config.DefaultStashSlots
+    local weight = typeData and typeData.stash_weight or Config.DefaultStashWeight
+
+    exports.ox_inventory:openInventory('stash', {
+        id = stashId,
+        slots = slots,
+        weight = weight,
+        label = ('%s Stash'):format(Config.Apartments[CurrentApartment.key].label)
+    })
+end
+
+-----------------------------------------------------------
+-- Apartment Menu (Command: /apartment)
+-----------------------------------------------------------
+RegisterCommand('apartment', function()
+    if not InsideApartment and not IsNearAnyApartment() then
+        lib.notify({ title = 'Apartments', description = IMRP.Locale('not_near_apartment'), type = 'error', position = Config.Notification.position })
+        return
+    end
+
+    if InsideApartment then
+        OpenInsideMenu()
+    else
+        OpenOutsideMenu()
+    end
+end, false)
+
+function IsNearAnyApartment()
+    local playerCoords = GetEntityCoords(cache.ped)
+    for key, apt in pairs(Config.Apartments) do
+        if #(playerCoords - apt.entrance) < 10.0 then
+            return true, key
+        end
+    end
+    return false, nil
+end
+
+function GetNearestApartment()
+    local playerCoords = GetEntityCoords(cache.ped)
+    local nearest = nil
+    local nearestDist = math.huge
+
+    for key, apt in pairs(Config.Apartments) do
+        local dist = #(playerCoords - apt.entrance)
+        if dist < nearestDist then
+            nearest = key
+            nearestDist = dist
         end
     end
 
-    if #options == 0 then
-        lib.notify({ title = 'Info', description = 'No valid apartment configurations found', type = 'info' })
-        return
-    end
-
-    lib.registerContext({
-        id = 'my_apartments',
-        title = 'My Apartments',
-        options = options
-    })
-    lib.showContext('my_apartments')
+    return nearest, nearestDist
 end
 
--- Show apartment options
-function ShowApartmentOptions(apartment_id)
+-----------------------------------------------------------
+-- Inside Apartment Menu
+-----------------------------------------------------------
+function OpenInsideMenu()
+    if not CurrentApartment then return end
+
     local options = {
         {
-            title = 'Enter Apartment',
+            title = IMRP.Locale('exit_apartment'),
+            description = IMRP.Locale('exit_apartment_desc'),
             icon = 'door-open',
             onSelect = function()
-                EnterApartment(apartment_id)
+                ExitApartment()
             end
         },
         {
-            title = 'Renew Rent',
-            icon = 'clock',
-            onSelect = function()
-                RenewApartment(apartment_id)
-            end
-        },
-        {
-            title = 'Information',
+            title = IMRP.Locale('apartment_info'),
+            description = IMRP.Locale('apartment_info_desc'),
             icon = 'info-circle',
             onSelect = function()
-                ShowApartmentInfo(apartment_id)
+                ShowApartmentInfo()
+            end
+        },
+        {
+            title = IMRP.Locale('open_stash'),
+            description = IMRP.Locale('open_stash_desc'),
+            icon = 'box',
+            onSelect = function()
+                OpenApartmentStash()
             end
         }
     }
-    
+
+    if Config.UseWardrobe then
+        options[#options + 1] = {
+            title = IMRP.Locale('open_wardrobe'),
+            description = IMRP.Locale('open_wardrobe_desc'),
+            icon = 'tshirt',
+            onSelect = function()
+                OpenWardrobe()
+            end
+        }
+    end
+
+    if Config.UseKeys then
+        options[#options + 1] = {
+            title = IMRP.Locale('manage_keys'),
+            description = IMRP.Locale('manage_keys_desc'),
+            icon = 'key',
+            onSelect = function()
+                OpenKeyMenu()
+            end
+        }
+    end
+
+    if Config.UseGuestSystem then
+        options[#options + 1] = {
+            title = IMRP.Locale('invite_player'),
+            description = IMRP.Locale('invite_player_desc'),
+            icon = 'user-plus',
+            onSelect = function()
+                InvitePlayer()
+            end
+        }
+        options[#options + 1] = {
+            title = IMRP.Locale('remove_guest'),
+            description = IMRP.Locale('remove_guest_desc'),
+            icon = 'user-minus',
+            onSelect = function()
+                RemoveGuest()
+            end
+        }
+    end
+
+    if Config.UseGarage then
+        options[#options + 1] = {
+            title = IMRP.Locale('garage'),
+            description = IMRP.Locale('garage_desc'),
+            icon = 'car',
+            onSelect = function()
+                OpenGarageMenu()
+            end
+        }
+    end
+
+    options[#options + 1] = {
+        title = IMRP.Locale('renew_apartment'),
+        description = IMRP.Locale('renew_apartment_desc'),
+        icon = 'redo',
+        onSelect = function()
+            RenewApartment()
+        end
+    }
+
+    options[#options + 1] = {
+        title = IMRP.Locale('sell_apartment'),
+        description = IMRP.Locale('sell_apartment_desc'),
+        icon = 'dollar-sign',
+        onSelect = function()
+            SellApartment()
+        end
+    }
+
+    options[#options + 1] = {
+        title = IMRP.Locale('logout_here'),
+        description = IMRP.Locale('logout_here_desc'),
+        icon = 'sign-out-alt',
+        onSelect = function()
+            TriggerServerEvent('imrp_apartments:server:logoutInApartment')
+        end
+    }
+
     lib.registerContext({
-        id = 'apartment_options',
-        title = 'Apartment Options',
+        id = 'apartment_inside_menu',
+        title = IMRP.Locale('apartment_menu_title'),
         options = options
     })
-    lib.showContext('apartment_options')
+    lib.showContext('apartment_inside_menu')
 end
 
--- Show apartment info
-function ShowApartmentInfo(apartment_id)
-    local info = lib.callback.await('imrp_apartments:GetApartmentInfo', false, apartment_id)
-    if not info then
-        lib.notify({ title = 'Error', description = 'Could not get apartment info', type = 'error' })
-        return
+-----------------------------------------------------------
+-- Outside Apartment Menu
+-----------------------------------------------------------
+function OpenOutsideMenu()
+    local _, nearestKey = IsNearAnyApartment()
+    if not nearestKey then
+        nearestKey = GetNearestApartment()
     end
+    if not nearestKey then return end
 
-    local apartment = Config.Apartments[apartment_id]
-    if not apartment then
-        lib.notify({ title = 'Error', description = 'Apartment configuration not found', type = 'error' })
-        return
-    end
+    local apt = Config.Apartments[nearestKey]
+    local typeData = Config.ApartmentTypes[apt.type]
 
-    local days_remaining = GetDaysRemaining(info.expire_date)
+    local options = {
+        {
+            title = IMRP.Locale('buy_apartment'),
+            description = IMRP.Locale('buy_apartment_desc', IMRP.FormatCurrency(typeData.price)),
+            icon = 'home',
+            onSelect = function()
+                BuyApartment(nearestKey)
+            end
+        },
+        {
+            title = IMRP.Locale('rent_apartment'),
+            description = IMRP.Locale('rent_apartment_desc', IMRP.FormatCurrency(typeData.rental_price)),
+            icon = 'calendar',
+            onSelect = function()
+                RentApartment(nearestKey)
+            end
+        },
+        {
+            title = IMRP.Locale('enter_apartment'),
+            description = IMRP.Locale('enter_apartment_desc'),
+            icon = 'door-open',
+            onSelect = function()
+                EnterApartment(nearestKey, nil)
+            end
+        },
+        {
+            title = IMRP.Locale('apartment_info'),
+            description = IMRP.Locale('apartment_info_desc'),
+            icon = 'info-circle',
+            onSelect = function()
+                ShowApartmentInfoExternal(nearestKey)
+            end
+        }
+    }
 
-    lib.notify({
-        title = apartment.label,
-        description = string.format(
-            'Price: $%s\nRent: $%s/week\nDays Remaining: %s\nPurchase Date: %s',
-            FormatNumber(apartment.price),
-            FormatNumber(apartment.rental_price),
-            days_remaining,
-            os.date('%Y-%m-%d', info.purchase_date)
-        ),
-        type = 'info',
-        duration = 15000
+    lib.registerContext({
+        id = 'apartment_outside_menu',
+        title = apt.label,
+        options = options
     })
+    lib.showContext('apartment_outside_menu')
 end
 
--- Purchase apartment
-function PurchaseApartment(apartment_id)
-    local apartment = Config.Apartments[apartment_id]
-    if not apartment then
-        lib.notify({ title = 'Error', description = 'Apartment not found', type = 'error' })
-        return
-    end
-
-    local success, message = lib.callback.await('imrp_apartments:PurchaseApartment', false, apartment_id)
-    if success then
-        lib.notify({ title = 'Success', description = message or 'Apartment purchased successfully!', type = 'success' })
-    else
-        lib.notify({ title = 'Error', description = message or 'Failed to purchase apartment', type = 'error' })
-    end
-end
-
--- Renew apartment
-function RenewApartment(apartment_id)
-    local success, message = lib.callback.await('imrp_apartments:RenewApartment', false, apartment_id)
-    if success then
-        lib.notify({ title = 'Success', description = message or 'Apartment renewed successfully!', type = 'success' })
-    else
-        lib.notify({ title = 'Error', description = message or 'Failed to renew apartment', type = 'error' })
-    end
-end
-
--- Show rent information
-function ShowRentInfo()
-    lib.notify({
-        title = 'Rent Information',
-        description = 'Apartments are rented on a weekly basis. You must renew your rent before it expires to maintain access.',
-        type = 'info',
-        duration = 10000
+-----------------------------------------------------------
+-- Buy Apartment
+-----------------------------------------------------------
+function BuyApartment(apartmentKey)
+    local alert = lib.alertDialog({
+        header = IMRP.Locale('confirm_purchase'),
+        content = IMRP.Locale('confirm_purchase_desc', Config.Apartments[apartmentKey].label, IMRP.FormatCurrency(IMRP.GetApartmentPrice(apartmentKey))),
+        centered = true,
+        cancel = true
     })
+
+    if alert ~= 'confirm' then return end
+
+    lib.callback('imrp_apartments:server:buyApartment', false, function(result)
+        if result and result.success then
+            lib.notify({ title = 'Apartments', description = IMRP.Locale('purchase_success', Config.Apartments[apartmentKey].label), type = 'success', position = Config.Notification.position })
+            SendNUIMessage({ action = 'showNotification', data = { type = 'success', message = IMRP.Locale('purchase_success', Config.Apartments[apartmentKey].label) } })
+        else
+            lib.notify({ title = 'Apartments', description = result and result.message or IMRP.Locale('purchase_failed'), type = 'error', position = Config.Notification.position })
+        end
+    end, apartmentKey, 'buy')
 end
 
--- Helper functions
-function FormatNumber(number)
-    return string.format("%.0f", number):reverse():gsub("%d%d%d", "%1,"):reverse():gsub("^,", "")
+-----------------------------------------------------------
+-- Rent Apartment
+-----------------------------------------------------------
+function RentApartment(apartmentKey)
+    local alert = lib.alertDialog({
+        header = IMRP.Locale('confirm_rental'),
+        content = IMRP.Locale('confirm_rental_desc', Config.Apartments[apartmentKey].label, IMRP.FormatCurrency(IMRP.GetRentalPrice(apartmentKey)), Config.ApartmentDuration),
+        centered = true,
+        cancel = true
+    })
+
+    if alert ~= 'confirm' then return end
+
+    lib.callback('imrp_apartments:server:buyApartment', false, function(result)
+        if result and result.success then
+            lib.notify({ title = 'Apartments', description = IMRP.Locale('rental_success', Config.Apartments[apartmentKey].label), type = 'success', position = Config.Notification.position })
+        else
+            lib.notify({ title = 'Apartments', description = result and result.message or IMRP.Locale('rental_failed'), type = 'error', position = Config.Notification.position })
+        end
+    end, apartmentKey, 'rent')
 end
 
-function GetDaysRemaining(expire_date)
-    local current_time = os.time()
-    local expire_timestamp = expire_date
-    local time_diff = expire_timestamp - current_time
-    return math.max(0, math.ceil(time_diff / 86400))
+-----------------------------------------------------------
+-- Renew Apartment
+-----------------------------------------------------------
+function RenewApartment()
+    if not CurrentApartment then return end
+
+    local typeData = IMRP.GetApartmentTypeData(CurrentApartment.key)
+    local renewPrice = typeData and typeData.rental_price or 0
+
+    local alert = lib.alertDialog({
+        header = IMRP.Locale('confirm_renew'),
+        content = IMRP.Locale('confirm_renew_desc', IMRP.FormatCurrency(renewPrice), Config.ApartmentDuration),
+        centered = true,
+        cancel = true
+    })
+
+    if alert ~= 'confirm' then return end
+
+    lib.callback('imrp_apartments:server:renewApartment', false, function(result)
+        if result and result.success then
+            lib.notify({ title = 'Apartments', description = IMRP.Locale('renew_success'), type = 'success', position = Config.Notification.position })
+        else
+            lib.notify({ title = 'Apartments', description = result and result.message or IMRP.Locale('renew_failed'), type = 'error', position = Config.Notification.position })
+        end
+    end, CurrentApartment.key)
 end
+
+-----------------------------------------------------------
+-- Sell Apartment
+-----------------------------------------------------------
+function SellApartment()
+    if not CurrentApartment then return end
+
+    local typeData = IMRP.GetApartmentTypeData(CurrentApartment.key)
+    local sellPrice = math.floor((typeData and typeData.price or 0) * Config.SellRefundPercent / 100)
+
+    local alert = lib.alertDialog({
+        header = IMRP.Locale('confirm_sell'),
+        content = IMRP.Locale('confirm_sell_desc', IMRP.FormatCurrency(sellPrice)),
+        centered = true,
+        cancel = true
+    })
+
+    if alert ~= 'confirm' then return end
+
+    lib.callback('imrp_apartments:server:sellApartment', false, function(result)
+        if result and result.success then
+            lib.notify({ title = 'Apartments', description = IMRP.Locale('sell_success', IMRP.FormatCurrency(sellPrice)), type = 'success', position = Config.Notification.position })
+            ExitApartment()
+        else
+            lib.notify({ title = 'Apartments', description = result and result.message or IMRP.Locale('sell_failed'), type = 'error', position = Config.Notification.position })
+        end
+    end, CurrentApartment.key)
+end
+
+-----------------------------------------------------------
+-- Apartment Info
+-----------------------------------------------------------
+function ShowApartmentInfo()
+    if not CurrentApartment then return end
+
+    lib.callback('imrp_apartments:server:getApartmentInfo', false, function(info)
+        if not info then return end
+
+        SendNUIMessage({
+            action = 'showApartmentInfo',
+            data = {
+                name = Config.Apartments[CurrentApartment.key].label,
+                type = Config.ApartmentTypes[Config.Apartments[CurrentApartment.key].type].label,
+                id = CurrentApartment.id,
+                bucket = CurrentApartment.bucket,
+                purchase_date = info.purchase_date,
+                expire_date = info.expire_date,
+                days_remaining = info.days_remaining,
+                keys_given = info.keys_count,
+                guests = info.guests_count
+            }
+        })
+        SetNuiFocus(true, true)
+    end, CurrentApartment.key)
+end
+
+function ShowApartmentInfoExternal(apartmentKey)
+    local apt = Config.Apartments[apartmentKey]
+    local typeData = Config.ApartmentTypes[apt.type]
+
+    SendNUIMessage({
+        action = 'showApartmentInfo',
+        data = {
+            name = apt.label,
+            type = typeData.label,
+            price = IMRP.FormatCurrency(typeData.price),
+            rental_price = IMRP.FormatCurrency(typeData.rental_price),
+            stash_slots = typeData.stash_slots,
+            stash_weight = typeData.stash_weight,
+            garage_slots = typeData.garage_slots,
+            duration = Config.ApartmentDuration
+        }
+    })
+    SetNuiFocus(true, true)
+end
+
+-----------------------------------------------------------
+-- Key Management
+-----------------------------------------------------------
+function OpenKeyMenu()
+    if not CurrentApartment then return end
+
+    lib.callback('imrp_apartments:server:getKeys', false, function(keys)
+        if not keys then return end
+
+        local options = {
+            {
+                title = IMRP.Locale('give_key'),
+                description = IMRP.Locale('give_key_desc'),
+                icon = 'key',
+                onSelect = function()
+                    GiveKey()
+                end
+            },
+            {
+                title = IMRP.Locale('duplicate_key'),
+                description = IMRP.Locale('duplicate_key_desc'),
+                icon = 'copy',
+                onSelect = function()
+                    DuplicateKey()
+                end
+            }
+        }
+
+        for _, keyData in ipairs(keys) do
+            options[#options + 1] = {
+                title = keyData.name or keyData.citizenid,
+                description = IMRP.Locale('key_type') .. ': ' .. (keyData.key_type or 'permanent'),
+                icon = 'user',
+                onSelect = function()
+                    RemoveKey(keyData.citizenid)
+                end,
+                arrow = true
+            }
+        end
+
+        lib.registerContext({
+            id = 'apartment_key_menu',
+            title = IMRP.Locale('key_management'),
+            menu = 'apartment_inside_menu',
+            options = options
+        })
+        lib.showContext('apartment_key_menu')
+    end, CurrentApartment.key)
+end
+
+function GiveKey()
+    if not CurrentApartment then return end
+
+    local input = lib.inputDialog(IMRP.Locale('give_key'), {
+        { type = 'number', label = IMRP.Locale('player_id'), required = true },
+        { type = 'select', label = IMRP.Locale('key_type'), options = {
+            { value = 'permanent', label = IMRP.Locale('permanent_key') },
+            { value = 'temporary', label = IMRP.Locale('temporary_key') }
+        }, required = true }
+    })
+
+    if not input then return end
+
+    lib.callback('imrp_apartments:server:giveKey', false, function(result)
+        if result and result.success then
+            lib.notify({ title = 'Apartments', description = IMRP.Locale('key_given'), type = 'success', position = Config.Notification.position })
+        else
+            lib.notify({ title = 'Apartments', description = result and result.message or IMRP.Locale('key_give_failed'), type = 'error', position = Config.Notification.position })
+        end
+    end, CurrentApartment.key, input[1], input[2])
+end
+
+function DuplicateKey()
+    if not CurrentApartment then return end
+
+    local input = lib.inputDialog(IMRP.Locale('duplicate_key'), {
+        { type = 'number', label = IMRP.Locale('player_id'), required = true }
+    })
+
+    if not input then return end
+
+    lib.callback('imrp_apartments:server:duplicateKey', false, function(result)
+        if result and result.success then
+            lib.notify({ title = 'Apartments', description = IMRP.Locale('key_duplicated'), type = 'success', position = Config.Notification.position })
+        else
+            lib.notify({ title = 'Apartments', description = result and result.message or IMRP.Locale('key_duplicate_failed'), type = 'error', position = Config.Notification.position })
+        end
+    end, CurrentApartment.key, input[1])
+end
+
+function RemoveKey(targetCitizenId)
+    local alert = lib.alertDialog({
+        header = IMRP.Locale('confirm_remove_key'),
+        content = IMRP.Locale('confirm_remove_key_desc'),
+        centered = true,
+        cancel = true
+    })
+
+    if alert ~= 'confirm' then return end
+
+    lib.callback('imrp_apartments:server:removeKey', false, function(result)
+        if result and result.success then
+            lib.notify({ title = 'Apartments', description = IMRP.Locale('key_removed'), type = 'success', position = Config.Notification.position })
+        else
+            lib.notify({ title = 'Apartments', description = result and result.message or IMRP.Locale('key_remove_failed'), type = 'error', position = Config.Notification.position })
+        end
+    end, CurrentApartment.key, targetCitizenId)
+end
+
+-----------------------------------------------------------
+-- Guest System
+-----------------------------------------------------------
+function InvitePlayer()
+    if not CurrentApartment then return end
+
+    local input = lib.inputDialog(IMRP.Locale('invite_player'), {
+        { type = 'number', label = IMRP.Locale('player_id'), required = true }
+    })
+
+    if not input then return end
+
+    lib.callback('imrp_apartments:server:inviteGuest', false, function(result)
+        if result and result.success then
+            lib.notify({ title = 'Apartments', description = IMRP.Locale('guest_invited'), type = 'success', position = Config.Notification.position })
+        else
+            lib.notify({ title = 'Apartments', description = result and result.message or IMRP.Locale('invite_failed'), type = 'error', position = Config.Notification.position })
+        end
+    end, CurrentApartment.key, input[1])
+end
+
+function RemoveGuest()
+    if not CurrentApartment then return end
+
+    lib.callback('imrp_apartments:server:getGuests', false, function(guests)
+        if not guests or #guests == 0 then
+            lib.notify({ title = 'Apartments', description = IMRP.Locale('no_guests'), type = 'info', position = Config.Notification.position })
+            return
+        end
+
+        local options = {}
+        for _, guest in ipairs(guests) do
+            options[#options + 1] = {
+                title = guest.name or guest.citizenid,
+                icon = 'user',
+                onSelect = function()
+                    lib.callback('imrp_apartments:server:removeGuest', false, function(result)
+                        if result and result.success then
+                            lib.notify({ title = 'Apartments', description = IMRP.Locale('guest_removed'), type = 'success', position = Config.Notification.position })
+                        else
+                            lib.notify({ title = 'Apartments', description = IMRP.Locale('guest_remove_failed'), type = 'error', position = Config.Notification.position })
+                        end
+                    end, CurrentApartment.key, guest.citizenid)
+                end
+            }
+        end
+
+        lib.registerContext({
+            id = 'apartment_guest_menu',
+            title = IMRP.Locale('remove_guest'),
+            menu = 'apartment_inside_menu',
+            options = options
+        })
+        lib.showContext('apartment_guest_menu')
+    end, CurrentApartment.key)
+end
+
+-----------------------------------------------------------
+-- Door Lock
+-----------------------------------------------------------
+RegisterNetEvent('imrp_apartments:client:toggleLock', function(locked)
+    if not CurrentApartment then return end
+    local msg = locked and IMRP.Locale('door_locked') or IMRP.Locale('door_unlocked')
+    lib.notify({ title = 'Apartments', description = msg, type = 'info', position = Config.Notification.position })
+end)
+
+-----------------------------------------------------------
+-- Exports
+-----------------------------------------------------------
+exports('IsInsideApartment', function()
+    return InsideApartment
+end)
+
+exports('GetCurrentApartment', function()
+    return CurrentApartment
+end)
+
+exports('GetCurrentBucket', function()
+    return CurrentBucket
+end)

@@ -1,131 +1,141 @@
-local Utils = {}
+-----------------------------------------------------------
+-- IMRP Apartments - Shared Utilities
+-- Author: Ragna | Immortal Roleplay
+-----------------------------------------------------------
 
-function Utils.GenerateRoomID(citizenid, apartment_id)
-    if not citizenid or not apartment_id then
-        print('[imrp_apartments] GenerateRoomID: missing citizenid or apartment_id')
-        return string.format('unknown_%s', os.time())
+IMRP = IMRP or {}
+
+-----------------------------------------------------------
+-- Locale System
+-----------------------------------------------------------
+local Locales = {}
+
+function IMRP.LoadLocale(lang)
+    local file = LoadResourceFile(GetCurrentResourceName(), ('locales/%s.lua'):format(lang or 'en'))
+    if file then
+        local fn = load(file)
+        if fn then
+            fn()
+        end
     end
-    return string.format('%s_%s_%s', citizenid, apartment_id, os.time())
 end
 
-function Utils.IsNullOrEmpty(str)
-    return str == nil or str == ''
+function IMRP.SetLocales(data)
+    Locales = data or {}
 end
 
-function Utils.FormatCurrency(amount)
-    if type(amount) ~= 'number' then return '$0.00' end
-    return '$' .. string.format("%.2f", amount)
+function IMRP.Locale(key, ...)
+    local str = Locales[key]
+    if not str then return key end
+    if ... then
+        return str:format(...)
+    end
+    return str
 end
 
-function Utils.GetDaysRemaining(expire_date)
-    if not expire_date then return 0 end
-    local current_time = os.time()
-    local expire_timestamp = expire_date
-    if type(expire_timestamp) ~= 'number' then return 0 end
-    local time_diff = expire_timestamp - current_time
-    return math.max(0, math.ceil(time_diff / 86400))
+-----------------------------------------------------------
+-- Generate Unique Apartment ID
+-----------------------------------------------------------
+function IMRP.GenerateApartmentId(apartmentKey, bucketId)
+    return ('%s_%d'):format(apartmentKey, bucketId)
 end
 
-function Utils.GetApartmentById(id)
-    if not id then return nil end
-    if not Config or not Config.Apartments then
-        print('[imrp_apartments] GetApartmentById: Config.Apartments not available')
-        return nil
-    end
-    return Config.Apartments[id]
+-----------------------------------------------------------
+-- Generate Stash ID
+-----------------------------------------------------------
+function IMRP.GenerateStashId(apartmentId)
+    return ('stash_%s'):format(apartmentId)
 end
 
-function Utils.PlayerOwnsApartment(player_id, apartment_id)
-    if not IsDuplicityVersion() then
-        print('[imrp_apartments] PlayerOwnsApartment can only be called server-side')
-        return false
+-----------------------------------------------------------
+-- Format Currency
+-----------------------------------------------------------
+function IMRP.FormatCurrency(amount)
+    if not amount then return '$0' end
+    local formatted = tostring(math.floor(amount))
+    local k
+    while true do
+        formatted, k = formatted:gsub('^(-?%d+)(%d%d%d)', '%1,%2')
+        if k == 0 then break end
     end
-
-    if not player_id or not apartment_id then return false end
-
-    local QBCore = nil
-    if GetResourceState('qb-core') == 'started' then
-        QBCore = exports['qb-core']:GetCoreObject()
-    elseif GetResourceState('qbx_core') == 'started' then
-        QBCore = exports['qbx_core']:GetCoreObject()
-    end
-
-    if not QBCore then
-        print('[imrp_apartments] PlayerOwnsApartment: framework not available')
-        return false
-    end
-
-    local player = QBCore.Functions.GetPlayer(player_id)
-    if not player then return false end
-
-    local citizenid = player.PlayerData.citizenid
-    if not citizenid then return false end
-
-    local ok, result = pcall(MySQL.Async.fetchSingle,
-        'SELECT COUNT(*) as count FROM player_apartments WHERE citizenid = ? AND apartment = ? AND expire_date > NOW()',
-        {citizenid, apartment_id}
-    )
-    if not ok then
-        print(string.format('[imrp_apartments] PlayerOwnsApartment DB error: %s', tostring(result)))
-        return false
-    end
-
-    return result and result.count and result.count > 0
+    return '$' .. formatted
 end
 
-function Utils.GetPlayerApartments(player_id)
-    if not IsDuplicityVersion() then
-        print('[imrp_apartments] GetPlayerApartments can only be called server-side')
-        return {}
-    end
-
-    if not player_id then return {} end
-
-    local QBCore = nil
-    if GetResourceState('qb-core') == 'started' then
-        QBCore = exports['qb-core']:GetCoreObject()
-    elseif GetResourceState('qbx_core') == 'started' then
-        QBCore = exports['qbx_core']:GetCoreObject()
-    end
-
-    if not QBCore then
-        print('[imrp_apartments] GetPlayerApartments: framework not available')
-        return {}
-    end
-
-    local player = QBCore.Functions.GetPlayer(player_id)
-    if not player then return {} end
-
-    local citizenid = player.PlayerData.citizenid
-    if not citizenid then return {} end
-
-    local ok, results = pcall(MySQL.Async.fetchAll,
-        'SELECT * FROM player_apartments WHERE citizenid = ? AND expire_date > NOW()',
-        {citizenid}
-    )
-    if not ok then
-        print(string.format('[imrp_apartments] GetPlayerApartments DB error: %s', tostring(results)))
-        return {}
-    end
-
-    return results or {}
+-----------------------------------------------------------
+-- Format Date
+-----------------------------------------------------------
+function IMRP.FormatDate(timestamp)
+    if not timestamp then return 'N/A' end
+    return os.date('%Y-%m-%d %H:%M', timestamp)
 end
 
-function Utils.GetAllApartments()
-    if not IsDuplicityVersion() then
-        print('[imrp_apartments] GetAllApartments can only be called server-side')
-        return {}
-    end
-
-    local ok, results = pcall(MySQL.Async.fetchAll,
-        'SELECT * FROM player_apartments WHERE expire_date > NOW()', {}
-    )
-    if not ok then
-        print(string.format('[imrp_apartments] GetAllApartments DB error: %s', tostring(results)))
-        return {}
-    end
-
-    return results or {}
+-----------------------------------------------------------
+-- Calculate Days Remaining
+-----------------------------------------------------------
+function IMRP.DaysRemaining(expireTimestamp)
+    if not expireTimestamp then return 0 end
+    local now = os.time()
+    local diff = expireTimestamp - now
+    if diff <= 0 then return 0 end
+    return math.ceil(diff / 86400)
 end
 
-return Utils
+-----------------------------------------------------------
+-- Validate Apartment Key
+-----------------------------------------------------------
+function IMRP.IsValidApartment(key)
+    return Config.Apartments[key] ~= nil
+end
+
+-----------------------------------------------------------
+-- Get Apartment Type Data
+-----------------------------------------------------------
+function IMRP.GetApartmentTypeData(key)
+    local apartment = Config.Apartments[key]
+    if not apartment then return nil end
+    return Config.ApartmentTypes[apartment.type]
+end
+
+-----------------------------------------------------------
+-- Get Price for Apartment
+-----------------------------------------------------------
+function IMRP.GetApartmentPrice(key)
+    local typeData = IMRP.GetApartmentTypeData(key)
+    if not typeData then return 0 end
+    return typeData.price
+end
+
+-----------------------------------------------------------
+-- Get Rental Price for Apartment
+-----------------------------------------------------------
+function IMRP.GetRentalPrice(key)
+    local typeData = IMRP.GetApartmentTypeData(key)
+    if not typeData then return 0 end
+    return typeData.rental_price
+end
+
+-----------------------------------------------------------
+-- Deep Copy Table
+-----------------------------------------------------------
+function IMRP.DeepCopy(orig)
+    local copy = {}
+    for k, v in pairs(orig) do
+        if type(v) == 'table' then
+            copy[k] = IMRP.DeepCopy(v)
+        else
+            copy[k] = v
+        end
+    end
+    return copy
+end
+
+-----------------------------------------------------------
+-- Debug Print
+-----------------------------------------------------------
+Config.Debug = false
+
+function IMRP.Debug(...)
+    if Config.Debug then
+        print('[IMRP_APARTMENTS]', ...)
+    end
+end

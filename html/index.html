@@ -1,0 +1,158 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>IMRP Apartments</title>
+    <link rel="stylesheet" href="style.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+</head>
+<body>
+    <div id="app" class="hidden">
+        <!-- Apartment Info Panel -->
+        <div id="apartment-info" class="panel hidden">
+            <div class="panel-header">
+                <div class="brand">
+                    <i class="fas fa-building"></i>
+                    <span>IMMORTAL ROLEPLAY</span>
+                </div>
+                <button class="close-btn" onclick="closeUI()">
+                    <i class="fas fa-times"></i>
+                </button>
+            </div>
+
+            <div class="panel-content">
+                <h2 id="info-title">Apartment Information</h2>
+
+                <div class="info-grid">
+                    <div class="info-item">
+                        <i class="fas fa-home"></i>
+                        <div class="info-details">
+                            <span class="info-label">Name</span>
+                            <span id="info-name" class="info-value">-</span>
+                        </div>
+                    </div>
+
+                    <div class="info-item">
+                        <i class="fas fa-layer-group"></i>
+                        <div class="info-details">
+                            <span class="info-label">Type</span>
+                            <span id="info-type" class="info-value">-</span>
+                        </div>
+                    </div>
+
+                    <div class="info-item">
+                        <i class="fas fa-fingerprint"></i>
+                        <div class="info-details">
+                            <span class="info-label">ID</span>
+                            <span id="info-id" class="info-value">-</span>
+                        </div>
+                    </div>
+
+                    <div class="info-item">
+                        <i class="fas fa-server"></i>
+                        <div class="info-details">
+                            <span class="info-label">Instance</span>
+                            <span id="info-bucket" class="info-value">-</span>
+                        </div>
+                    </div>
+
+                    <div class="info-item">
+                        <i class="fas fa-dollar-sign"></i>
+                        <div class="info-details">
+                            <span class="info-label">Price</span>
+                            <span id="info-price" class="info-value">-</span>
+                        </div>
+                    </div>
+
+                    <div class="info-item">
+                        <i class="fas fa-calendar-alt"></i>
+                        <div class="info-details">
+                            <span class="info-label">Rental Price</span>
+                            <span id="info-rental" class="info-value">-</span>
+                        </div>
+                    </div>
+
+                    <div class="info-item">
+                        <i class="fas fa-calendar-check"></i>
+                        <div class="info-details">
+                            <span class="info-label">Purchased</span>
+                            <span id="info-purchase-date" class="info-value">-</span>
+                        </div>
+                    </div>
+
+                    <div class="info-item">
+                        <i class="fas fa-clock"></i>
+                        <div class="info-details">
+                            <span class="info-label">Expires</span>
+                            <span id="info-expire-date" class="info-value">-</span>
+                        </div>
+                    </div>
+
+                    <div class="info-item">
+                        <i class="fas fa-hourglass-half"></i>
+                        <div class="info-details">
+                            <span class="info-label">Days Remaining</span>
+                            <span id="info-days" class="info-value">-</span>
+                        </div>
+                    </div>
+
+                    <div class="info-item">
+                        <i class="fas fa-box"></i>
+                        <div class="info-details">
+                            <span class="info-label">Stash Slots</span>
+                            <span id="info-stash" class="info-value">-</span>
+                        </div>
+                    </div>
+
+                    <div class="info-item">
+                        <i class="fas fa-key"></i>
+                        <div class="info-details">
+                            <span class="info-label">Keys Given</span>
+                            <span id="info-keys" class="info-value">-</span>
+                        </div>
+                    </div>
+
+                    <div class="info-item">
+                        <i class="fas fa-users"></i>
+                        <div class="info-details">
+                            <span class="info-label">Guests</span>
+                            <span id="info-guests" class="info-value">-</span>
+                        </div>
+                    </div>
+
+                    <div class="info-item">
+                        <i class="fas fa-car"></i>
+                        <div class="info-details">
+                            <span class="info-label">Garage Slots</span>
+                            <span id="info-garage" class="info-value">-</span>
+                        </div>
+                    </div>
+
+                    <div class="info-item">
+                        <i class="fas fa-calendar"></i>
+                        <div class="info-details">
+                            <span class="info-label">Duration</span>
+                            <span id="info-duration" class="info-value">-</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="panel-footer">
+                <span>Created By Ragna</span>
+            </div>
+        </div>
+
+        <!-- Notification Toast -->
+        <div id="notification" class="notification hidden">
+            <div class="notification-content">
+                <i id="notification-icon" class="fas fa-info-circle"></i>
+                <span id="notification-message"></span>
+            </div>
+        </div>
+    </div>
+
+    <script src="script.js"></script>
+</body>
+</html>
