@@ -3,7 +3,6 @@
 -- Author: Ragna | Immortal Roleplay
 -----------------------------------------------------------
 
-local QBX = exports['qbx_core']
 local OwnedApartments = {}
 local NextBucketId = Config.BucketStart
 
@@ -176,11 +175,8 @@ end
 -- Buy / Rent Apartment
 -----------------------------------------------------------
 lib.callback.register('imrp_apartments:server:buyApartment', function(source, apartmentKey, purchaseType)
-    local src = source
-    local player = QBX:GetPlayer(src)
-    if not player then return { success = false, message = 'Player not found' } end
-
-    local citizenid = player.PlayerData.citizenid
+    local player, citizenid, err = IMRP.GetPlayerOrFail(source)
+    if not player then return err end
 
     -- Validate apartment exists
     if not Config.Apartments[apartmentKey] then
@@ -257,11 +253,8 @@ end)
 -- Enter Apartment
 -----------------------------------------------------------
 lib.callback.register('imrp_apartments:server:enterApartment', function(source, apartmentKey)
-    local src = source
-    local player = QBX:GetPlayer(src)
-    if not player then return { success = false, message = 'Player not found' } end
-
-    local citizenid = player.PlayerData.citizenid
+    local player, citizenid, err = IMRP.GetPlayerOrFail(source)
+    if not player then return err end
 
     -- Check access
     local hasAccess, apartmentId, aptData = HasAccessToApartment(citizenid, apartmentKey)
@@ -271,7 +264,7 @@ lib.callback.register('imrp_apartments:server:enterApartment', function(source, 
 
     -- Set routing bucket
     if Config.UseRoutingBuckets then
-        SetPlayerRoutingBucket(src, aptData.bucket_id)
+        SetPlayerRoutingBucket(source, aptData.bucket_id)
         SetRoutingBucketPopulationEnabled(aptData.bucket_id, Config.BucketPopulation)
         SetRoutingBucketEntityLockdownMode(aptData.bucket_id, Config.BucketLockdown)
     end
@@ -286,11 +279,9 @@ end)
 -- Exit Apartment
 -----------------------------------------------------------
 lib.callback.register('imrp_apartments:server:exitApartment', function(source)
-    local src = source
-
     -- Reset routing bucket to 0
     if Config.UseRoutingBuckets then
-        SetPlayerRoutingBucket(src, 0)
+        SetPlayerRoutingBucket(source, 0)
     end
 
     return { success = true }
@@ -300,11 +291,8 @@ end)
 -- Renew Apartment
 -----------------------------------------------------------
 lib.callback.register('imrp_apartments:server:renewApartment', function(source, apartmentKey)
-    local src = source
-    local player = QBX:GetPlayer(src)
-    if not player then return { success = false, message = 'Player not found' } end
-
-    local citizenid = player.PlayerData.citizenid
+    local player, citizenid, err = IMRP.GetPlayerOrFail(source)
+    if not player then return err end
 
     -- Check ownership
     local isOwner, apartmentId = IsOwner(citizenid, apartmentKey)
@@ -350,11 +338,8 @@ end)
 -- Sell Apartment
 -----------------------------------------------------------
 lib.callback.register('imrp_apartments:server:sellApartment', function(source, apartmentKey)
-    local src = source
-    local player = QBX:GetPlayer(src)
-    if not player then return { success = false, message = 'Player not found' } end
-
-    local citizenid = player.PlayerData.citizenid
+    local player, citizenid, err = IMRP.GetPlayerOrFail(source)
+    if not player then return err end
 
     -- Check ownership
     local isOwner, apartmentId = IsOwner(citizenid, apartmentKey)
@@ -406,11 +391,8 @@ end
 -- Get Apartment Info
 -----------------------------------------------------------
 lib.callback.register('imrp_apartments:server:getApartmentInfo', function(source, apartmentKey)
-    local src = source
-    local player = QBX:GetPlayer(src)
+    local player, citizenid = IMRP.GetPlayerOrFail(source)
     if not player then return nil end
-
-    local citizenid = player.PlayerData.citizenid
     local isOwner, apartmentId = IsOwner(citizenid, apartmentKey)
     if not isOwner then return nil end
 
@@ -433,48 +415,30 @@ end)
 -- Key System
 -----------------------------------------------------------
 lib.callback.register('imrp_apartments:server:getKeys', function(source, apartmentKey)
-    local src = source
-    local player = QBX:GetPlayer(src)
+    local player, citizenid = IMRP.GetPlayerOrFail(source)
     if not player then return nil end
 
-    local citizenid = player.PlayerData.citizenid
     local isOwner, apartmentId = IsOwner(citizenid, apartmentKey)
     if not isOwner then return nil end
 
     local keys = MySQL.query.await('SELECT ak.citizenid, ak.key_type, ak.granted_date FROM apartment_keys ak WHERE ak.apartment_id = ?', { apartmentId })
     if not keys then return {} end
 
-    -- Enrich with player names
-    for i, key in ipairs(keys) do
-        local targetPlayer = MySQL.single.await('SELECT JSON_EXTRACT(charinfo, "$.firstname") as firstname, JSON_EXTRACT(charinfo, "$.lastname") as lastname FROM players WHERE citizenid = ?', { key.citizenid })
-        if targetPlayer then
-            keys[i].name = ('%s %s'):format(
-                targetPlayer.firstname and targetPlayer.firstname:gsub('"', '') or 'Unknown',
-                targetPlayer.lastname and targetPlayer.lastname:gsub('"', '') or ''
-            )
-        end
-    end
-
-    return keys
+    return IMRP.EnrichWithNames(keys)
 end)
 
 lib.callback.register('imrp_apartments:server:giveKey', function(source, apartmentKey, targetId, keyType)
-    local src = source
-    local player = QBX:GetPlayer(src)
-    if not player then return { success = false } end
-
-    local citizenid = player.PlayerData.citizenid
+    local player, citizenid, err = IMRP.GetPlayerOrFail(source)
+    if not player then return err or { success = false } end
     local isOwner, apartmentId = IsOwner(citizenid, apartmentKey)
     if not isOwner then
         return { success = false, message = IMRP.Locale('not_owner') }
     end
 
-    local targetPlayer = QBX:GetPlayer(tonumber(targetId))
+    local targetPlayer, targetCitizenId = IMRP.GetPlayerOrFail(tonumber(targetId))
     if not targetPlayer then
         return { success = false, message = IMRP.Locale('player_not_found') }
     end
-
-    local targetCitizenId = targetPlayer.PlayerData.citizenid
 
     -- Check if key already exists
     local existing = MySQL.scalar.await('SELECT COUNT(*) FROM apartment_keys WHERE apartment_id = ? AND citizenid = ?', { apartmentId, targetCitizenId })
@@ -496,11 +460,8 @@ lib.callback.register('imrp_apartments:server:duplicateKey', function(source, ap
 end)
 
 lib.callback.register('imrp_apartments:server:removeKey', function(source, apartmentKey, targetCitizenId)
-    local src = source
-    local player = QBX:GetPlayer(src)
-    if not player then return { success = false } end
-
-    local citizenid = player.PlayerData.citizenid
+    local player, citizenid, err = IMRP.GetPlayerOrFail(source)
+    if not player then return err or { success = false } end
     local isOwner, apartmentId = IsOwner(citizenid, apartmentKey)
     if not isOwner then
         return { success = false, message = IMRP.Locale('not_owner') }
@@ -517,22 +478,17 @@ end)
 -- Guest System
 -----------------------------------------------------------
 lib.callback.register('imrp_apartments:server:inviteGuest', function(source, apartmentKey, targetId)
-    local src = source
-    local player = QBX:GetPlayer(src)
-    if not player then return { success = false } end
-
-    local citizenid = player.PlayerData.citizenid
+    local player, citizenid, err = IMRP.GetPlayerOrFail(source)
+    if not player then return err or { success = false } end
     local isOwner, apartmentId = IsOwner(citizenid, apartmentKey)
     if not isOwner then
         return { success = false, message = IMRP.Locale('not_owner') }
     end
 
-    local targetPlayer = QBX:GetPlayer(tonumber(targetId))
+    local targetPlayer, targetCitizenId = IMRP.GetPlayerOrFail(tonumber(targetId))
     if not targetPlayer then
         return { success = false, message = IMRP.Locale('player_not_found') }
     end
-
-    local targetCitizenId = targetPlayer.PlayerData.citizenid
 
     -- Check if already a guest
     local existing = MySQL.scalar.await('SELECT COUNT(*) FROM apartment_guests WHERE apartment_id = ? AND citizenid = ?', { apartmentId, targetCitizenId })
@@ -558,36 +514,21 @@ lib.callback.register('imrp_apartments:server:inviteGuest', function(source, apa
 end)
 
 lib.callback.register('imrp_apartments:server:getGuests', function(source, apartmentKey)
-    local src = source
-    local player = QBX:GetPlayer(src)
+    local player, citizenid = IMRP.GetPlayerOrFail(source)
     if not player then return nil end
 
-    local citizenid = player.PlayerData.citizenid
     local isOwner, apartmentId = IsOwner(citizenid, apartmentKey)
     if not isOwner then return nil end
 
     local guests = MySQL.query.await('SELECT citizenid FROM apartment_guests WHERE apartment_id = ?', { apartmentId })
     if not guests then return {} end
 
-    for i, guest in ipairs(guests) do
-        local targetPlayer = MySQL.single.await('SELECT JSON_EXTRACT(charinfo, "$.firstname") as firstname, JSON_EXTRACT(charinfo, "$.lastname") as lastname FROM players WHERE citizenid = ?', { guest.citizenid })
-        if targetPlayer then
-            guests[i].name = ('%s %s'):format(
-                targetPlayer.firstname and targetPlayer.firstname:gsub('"', '') or 'Unknown',
-                targetPlayer.lastname and targetPlayer.lastname:gsub('"', '') or ''
-            )
-        end
-    end
-
-    return guests
+    return IMRP.EnrichWithNames(guests)
 end)
 
 lib.callback.register('imrp_apartments:server:removeGuest', function(source, apartmentKey, targetCitizenId)
-    local src = source
-    local player = QBX:GetPlayer(src)
-    if not player then return { success = false } end
-
-    local citizenid = player.PlayerData.citizenid
+    local player, citizenid, err = IMRP.GetPlayerOrFail(source)
+    if not player then return err or { success = false } end
     local isOwner, apartmentId = IsOwner(citizenid, apartmentKey)
     if not isOwner then
         return { success = false, message = IMRP.Locale('not_owner') }
@@ -604,11 +545,8 @@ end)
 -- Garage System
 -----------------------------------------------------------
 lib.callback.register('imrp_apartments:server:storeVehicle', function(source, apartmentKey, plate, props)
-    local src = source
-    local player = QBX:GetPlayer(src)
-    if not player then return { success = false } end
-
-    local citizenid = player.PlayerData.citizenid
+    local player, citizenid, err = IMRP.GetPlayerOrFail(source)
+    if not player then return err or { success = false } end
 
     -- Verify access
     local hasAccess, apartmentId, _ = HasAccessToApartment(citizenid, apartmentKey)
@@ -633,11 +571,8 @@ lib.callback.register('imrp_apartments:server:storeVehicle', function(source, ap
 end)
 
 lib.callback.register('imrp_apartments:server:getStoredVehicles', function(source, apartmentKey)
-    local src = source
-    local player = QBX:GetPlayer(src)
+    local player, citizenid = IMRP.GetPlayerOrFail(source)
     if not player then return nil end
-
-    local citizenid = player.PlayerData.citizenid
 
     local hasAccess, apartmentId, _ = HasAccessToApartment(citizenid, apartmentKey)
     if not hasAccess then return nil end
@@ -662,11 +597,8 @@ lib.callback.register('imrp_apartments:server:getStoredVehicles', function(sourc
 end)
 
 lib.callback.register('imrp_apartments:server:retrieveVehicle', function(source, apartmentKey, plate)
-    local src = source
-    local player = QBX:GetPlayer(src)
-    if not player then return { success = false } end
-
-    local citizenid = player.PlayerData.citizenid
+    local player, citizenid, err = IMRP.GetPlayerOrFail(source)
+    if not player then return err or { success = false } end
 
     local hasAccess, apartmentId, _ = HasAccessToApartment(citizenid, apartmentKey)
     if not hasAccess then
@@ -686,13 +618,12 @@ end)
 -- Logout in Apartment
 -----------------------------------------------------------
 RegisterNetEvent('imrp_apartments:server:logoutInApartment', function()
-    local src = source
-    local player = QBX:GetPlayer(src)
+    local player = IMRP.GetPlayerOrFail(source)
     if not player then return end
 
     -- Reset bucket before logout
     if Config.UseRoutingBuckets then
-        SetPlayerRoutingBucket(src, 0)
+        SetPlayerRoutingBucket(source, 0)
     end
 
     -- Trigger QBX multicharacter logout
@@ -703,11 +634,9 @@ end)
 -- Door Lock
 -----------------------------------------------------------
 lib.callback.register('imrp_apartments:server:toggleLock', function(source, apartmentKey)
-    local src = source
-    local player = QBX:GetPlayer(src)
-    if not player then return { success = false } end
+    local player, citizenid, err = IMRP.GetPlayerOrFail(source)
+    if not player then return err or { success = false } end
 
-    local citizenid = player.PlayerData.citizenid
     local hasAccess, _, _ = HasAccessToApartment(citizenid, apartmentKey)
     if not hasAccess then
         return { success = false, message = IMRP.Locale('no_access') }

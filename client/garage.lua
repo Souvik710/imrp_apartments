@@ -11,7 +11,7 @@ function OpenGarageMenu()
 
     local currentApt = exports['imrp_apartments']:GetCurrentApartment()
     if not currentApt then
-        lib.notify({ title = 'Garage', description = IMRP.Locale('not_in_apartment'), type = 'error', position = Config.Notification.position })
+        IMRP.Notify(IMRP.Locale('not_in_apartment'), 'error')
         return
     end
 
@@ -64,7 +64,7 @@ function StoreVehicle()
     end
 
     if vehicle == 0 then
-        lib.notify({ title = 'Garage', description = IMRP.Locale('no_vehicle_nearby'), type = 'error', position = Config.Notification.position })
+        IMRP.Notify(IMRP.Locale('no_vehicle_nearby'), 'error')
         return
     end
 
@@ -76,9 +76,9 @@ function StoreVehicle()
             if DoesEntityExist(vehicle) then
                 DeleteEntity(vehicle)
             end
-            lib.notify({ title = 'Garage', description = IMRP.Locale('vehicle_stored'), type = 'success', position = Config.Notification.position })
+            IMRP.Notify(IMRP.Locale('vehicle_stored'), 'success')
         else
-            lib.notify({ title = 'Garage', description = result and result.message or IMRP.Locale('store_failed'), type = 'error', position = Config.Notification.position })
+            IMRP.Notify(result and result.message or IMRP.Locale('store_failed'), 'error')
         end
     end, currentApt.key, plate, props)
 end
@@ -92,7 +92,7 @@ function RetrieveVehicle()
 
     lib.callback('imrp_apartments:server:getStoredVehicles', false, function(vehicles)
         if not vehicles or #vehicles == 0 then
-            lib.notify({ title = 'Garage', description = IMRP.Locale('no_stored_vehicles'), type = 'info', position = Config.Notification.position })
+            IMRP.Notify(IMRP.Locale('no_stored_vehicles'), 'info')
             return
         end
 
@@ -129,7 +129,7 @@ function SpawnVehicleFromGarage(vehicleData, apartmentKey)
 
     lib.callback('imrp_apartments:server:retrieveVehicle', false, function(result)
         if not result or not result.success then
-            lib.notify({ title = 'Garage', description = result and result.message or IMRP.Locale('retrieve_failed'), type = 'error', position = Config.Notification.position })
+            IMRP.Notify(result and result.message or IMRP.Locale('retrieve_failed'), 'error')
             return
         end
 
@@ -145,7 +145,7 @@ function SpawnVehicleFromGarage(vehicleData, apartmentKey)
             SetVehicleHasBeenOwnedByPlayer(vehicle, true)
             SetVehicleEngineOn(vehicle, true, true, false)
 
-            lib.notify({ title = 'Garage', description = IMRP.Locale('vehicle_retrieved'), type = 'success', position = Config.Notification.position })
+            IMRP.Notify(IMRP.Locale('vehicle_retrieved'), 'success')
         end
     end, apartmentKey, vehicleData.plate)
 end
@@ -159,7 +159,7 @@ function ShowVehicleList()
 
     lib.callback('imrp_apartments:server:getStoredVehicles', false, function(vehicles)
         if not vehicles or #vehicles == 0 then
-            lib.notify({ title = 'Garage', description = IMRP.Locale('no_stored_vehicles'), type = 'info', position = Config.Notification.position })
+            IMRP.Notify(IMRP.Locale('no_stored_vehicles'), 'info')
             return
         end
 

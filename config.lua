@@ -99,60 +99,56 @@ Config.NPCs = {
 -- Apartment Types
 -----------------------------------------------------------
 Config.ApartmentTypes = {
-    ['basic'] = {
+    ['basic'] = IMRP.CreateApartmentType({
         label = 'Basic Apartment',
         price = 25000,
         rental_price = 5000,
         stash_slots = 50,
         stash_weight = 100000,
-        garage_slots = 1,
-        interior = 'basic_interior'
-    },
-    ['modern'] = {
+        interior = 'basic_interior',
+    }),
+    ['modern'] = IMRP.CreateApartmentType({
         label = 'Modern Apartment',
         price = 50000,
         rental_price = 10000,
-        stash_slots = 75,
-        stash_weight = 150000,
         garage_slots = 2,
-        interior = 'modern_interior'
-    },
-    ['deluxe'] = {
+        interior = 'modern_interior',
+    }),
+    ['deluxe'] = IMRP.CreateApartmentType({
         label = 'Deluxe Apartment',
         price = 75000,
         rental_price = 15000,
         stash_slots = 100,
         stash_weight = 200000,
         garage_slots = 3,
-        interior = 'deluxe_interior'
-    },
-    ['luxury'] = {
+        interior = 'deluxe_interior',
+    }),
+    ['luxury'] = IMRP.CreateApartmentType({
         label = 'Luxury Apartment',
         price = 100000,
         rental_price = 20000,
         stash_slots = 125,
         stash_weight = 250000,
         garage_slots = 4,
-        interior = 'luxury_interior'
-    },
-    ['penthouse'] = {
+        interior = 'luxury_interior',
+    }),
+    ['penthouse'] = IMRP.CreateApartmentType({
         label = 'Penthouse',
         price = 250000,
         rental_price = 50000,
         stash_slots = 150,
         stash_weight = 300000,
         garage_slots = 5,
-        interior = 'penthouse_interior'
-    },
-    ['motel'] = {
+        interior = 'penthouse_interior',
+    }),
+    ['motel'] = IMRP.CreateApartmentType({
         label = 'Motel Room',
         price = 15000,
         rental_price = 3000,
         stash_slots = 30,
         stash_weight = 50000,
-        garage_slots = 1,
-        interior = 'motel_interior'
-    }
+        interior = 'motel_interior',
+    }),
 }
 
 -----------------------------------------------------------
@@ -237,34 +233,10 @@ Config.Apartments = {
 -- Interiors (qbx_interiors compatible)
 -----------------------------------------------------------
 Config.Interiors = {
-    ['basic_interior'] = {
-        ipl = nil,
-        shell = 'shell_basic_apartment',
-        offset = vector3(0.0, 0.0, 0.0)
-    },
-    ['modern_interior'] = {
-        ipl = nil,
-        shell = 'shell_modern_apartment',
-        offset = vector3(0.0, 0.0, 0.0)
-    },
-    ['deluxe_interior'] = {
-        ipl = nil,
-        shell = 'shell_deluxe_apartment',
-        offset = vector3(0.0, 0.0, 0.0)
-    },
-    ['luxury_interior'] = {
-        ipl = nil,
-        shell = 'shell_luxury_apartment',
-        offset = vector3(0.0, 0.0, 0.0)
-    },
-    ['penthouse_interior'] = {
-        ipl = nil,
-        shell = 'shell_penthouse',
-        offset = vector3(0.0, 0.0, 0.0)
-    },
-    ['motel_interior'] = {
-        ipl = nil,
-        shell = 'shell_motel_room',
-        offset = vector3(0.0, 0.0, 0.0)
-    }
+    ['basic_interior']     = IMRP.CreateInterior('shell_basic_apartment'),
+    ['modern_interior']    = IMRP.CreateInterior('shell_modern_apartment'),
+    ['deluxe_interior']    = IMRP.CreateInterior('shell_deluxe_apartment'),
+    ['luxury_interior']    = IMRP.CreateInterior('shell_luxury_apartment'),
+    ['penthouse_interior'] = IMRP.CreateInterior('shell_penthouse'),
+    ['motel_interior']     = IMRP.CreateInterior('shell_motel_room'),
 }
