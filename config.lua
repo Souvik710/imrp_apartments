@@ -1,3 +1,5 @@
+local Utils = require 'shared.utils'
+
 Config = {}
 
 -- General Settings
@@ -6,75 +8,26 @@ Config.UseTarget = true
 
 -- Apartment Configurations
 Config.Apartments = {
-    ['apartment_1'] = {
-        name = 'Vespucci Beach Apartment',
-        label = 'Vespucci Beach Apartment',
-        price = 50000,
-        rental_days = 7,
-        rental_price = 5000,
-        location = {
-            entrance = vector3(-1100.0, -1600.0, 4.0),
-            interior = vector3(-1100.0, -1600.0, 100.0),
-            exit = vector3(-1100.0, -1600.0, 4.0),
-            stash = vector3(-1100.5, -1600.5, 100.0),
-            wardrobe = vector3(-1101.0, -1601.0, 100.0)
-        },
-        stash_slots = 50,
-        stash_weight = 10000,
-        blip = {
-            enabled = true,
-            sprite = 40,
-            color = 2,
-            scale = 0.7,
-            label = 'Apartment'
-        }
-    },
-    ['apartment_2'] = {
-        name = 'Del Perro Heights',
-        label = 'Del Perro Heights',
-        price = 75000,
-        rental_days = 7,
-        rental_price = 7500,
-        location = {
-            entrance = vector3(-1450.0, -550.0, 34.0),
-            interior = vector3(-1450.0, -550.0, 100.0),
-            exit = vector3(-1450.0, -550.0, 34.0),
-            stash = vector3(-1450.5, -550.5, 100.0),
-            wardrobe = vector3(-1451.0, -551.0, 100.0)
-        },
-        stash_slots = 50,
-        stash_weight = 10000,
-        blip = {
-            enabled = true,
-            sprite = 40,
-            color = 3,
-            scale = 0.7,
-            label = 'Apartment'
-        }
-    },
-    ['apartment_3'] = {
-        name = 'Richards Majestic',
-        label = 'Richards Majestic',
-        price = 100000,
-        rental_days = 7,
-        rental_price = 10000,
-        location = {
-            entrance = vector3(-850.0, -1300.0, 5.0),
-            interior = vector3(-850.0, -1300.0, 100.0),
-            exit = vector3(-850.0, -1300.0, 5.0),
-            stash = vector3(-850.5, -1300.5, 100.0),
-            wardrobe = vector3(-851.0, -1301.0, 100.0)
-        },
-        stash_slots = 70,
+    ['apartment_1'] = Utils.CreateApartment({
+        name     = 'Vespucci Beach Apartment',
+        price    = 50000,
+        entrance = vector3(-1100.0, -1600.0, 4.0),
+        blip     = { color = 2 },
+    }),
+    ['apartment_2'] = Utils.CreateApartment({
+        name     = 'Del Perro Heights',
+        price    = 75000,
+        entrance = vector3(-1450.0, -550.0, 34.0),
+        blip     = { color = 3 },
+    }),
+    ['apartment_3'] = Utils.CreateApartment({
+        name         = 'Richards Majestic',
+        price        = 100000,
+        entrance     = vector3(-850.0, -1300.0, 5.0),
+        stash_slots  = 70,
         stash_weight = 15000,
-        blip = {
-            enabled = true,
-            sprite = 40,
-            color = 4,
-            scale = 0.7,
-            label = 'Apartment'
-        }
-    }
+        blip         = { color = 4 },
+    }),
 }
 
 -- NPC Configuration
