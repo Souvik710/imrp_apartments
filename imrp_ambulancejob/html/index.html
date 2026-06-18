@@ -1,0 +1,286 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>IMRP EMS System</title>
+    <link rel="stylesheet" href="style.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+</head>
+<body>
+    <!-- ============================= -->
+    <!-- DEATH SCREEN -->
+    <!-- ============================= -->
+    <div id="deathScreen" class="death-screen hidden">
+        <div class="death-overlay"></div>
+        <div class="death-content">
+            <div class="death-icon">
+                <i class="fas fa-heart-pulse death-pulse"></i>
+            </div>
+            <h1 id="deathTitle" class="death-title">CRITICALLY INJURED</h1>
+            <p id="deathSubtitle" class="death-subtitle">EMS can save you</p>
+            <div class="death-timer">
+                <span id="deathTimerText">05:00</span>
+            </div>
+            <div class="death-actions">
+                <button id="btnDistress" class="death-btn distress-btn" onclick="sendDistress()">
+                    <i class="fas fa-tower-broadcast"></i> DISTRESS SIGNAL
+                </button>
+                <button id="btnCrawl" class="death-btn crawl-btn" onclick="toggleCrawl()">
+                    <i class="fas fa-person-walking"></i> CRAWL
+                </button>
+                <button id="btnRespawn" class="death-btn respawn-btn hidden" onclick="requestRespawn()">
+                    <i class="fas fa-hospital"></i> RESPAWN
+                </button>
+            </div>
+            <p id="deathHint" class="death-hint">Press G to send distress signal</p>
+        </div>
+    </div>
+
+    <!-- ============================= -->
+    <!-- DISPATCH ALERT -->
+    <!-- ============================= -->
+    <div id="dispatchAlert" class="dispatch-alert hidden">
+        <div class="dispatch-header">
+            <i class="fas fa-truck-medical"></i>
+            <span>EMS DISPATCH</span>
+            <span id="dispatchPriority" class="dispatch-priority">HIGH</span>
+        </div>
+        <div class="dispatch-body">
+            <div class="dispatch-type" id="dispatchType">Emergency Call</div>
+            <div class="dispatch-info">
+                <div><i class="fas fa-location-dot"></i> <span id="dispatchLocation">Unknown</span></div>
+                <div><i class="fas fa-user"></i> <span id="dispatchCaller">Unknown</span></div>
+                <div><i class="fas fa-users"></i> <span id="dispatchUnits">0</span> responding</div>
+            </div>
+            <div class="dispatch-desc" id="dispatchDesc">No details</div>
+        </div>
+    </div>
+
+    <!-- ============================= -->
+    <!-- PATIENT INSPECTION -->
+    <!-- ============================= -->
+    <div id="patientInspection" class="patient-inspection hidden">
+        <div class="inspection-header">
+            <h2><i class="fas fa-stethoscope"></i> Patient Inspection</h2>
+            <button class="close-btn" onclick="closeInspection()"><i class="fas fa-xmark"></i></button>
+        </div>
+        <div class="inspection-body">
+            <div class="patient-info">
+                <span class="patient-name" id="inspPatientName">Unknown</span>
+                <span class="patient-id" id="inspPatientId">ID: ---</span>
+            </div>
+            <div class="vitals-grid">
+                <div class="vital-card">
+                    <i class="fas fa-droplet"></i>
+                    <span class="vital-label">Blood Level</span>
+                    <span class="vital-value" id="inspBlood">100%</span>
+                    <div class="vital-bar"><div class="vital-fill blood-fill" id="inspBloodBar"></div></div>
+                </div>
+                <div class="vital-card">
+                    <i class="fas fa-face-grimace"></i>
+                    <span class="vital-label">Pain Level</span>
+                    <span class="vital-value" id="inspPain">0%</span>
+                    <div class="vital-bar"><div class="vital-fill pain-fill" id="inspPainBar"></div></div>
+                </div>
+                <div class="vital-card">
+                    <i class="fas fa-droplet"></i>
+                    <span class="vital-label">Bleed Level</span>
+                    <span class="vital-value" id="inspBleed">0/5</span>
+                    <div class="vital-bar"><div class="vital-fill bleed-fill" id="inspBleedBar"></div></div>
+                </div>
+            </div>
+            <div class="injury-list" id="inspInjuryList"></div>
+            <div class="bone-list" id="inspBoneList"></div>
+            <div class="bullet-list" id="inspBulletList"></div>
+        </div>
+    </div>
+
+    <!-- ============================= -->
+    <!-- MDT TABLET -->
+    <!-- ============================= -->
+    <div id="mdtContainer" class="mdt-container hidden">
+        <div class="mdt-frame">
+            <!-- Sidebar -->
+            <div class="mdt-sidebar">
+                <div class="mdt-logo">
+                    <i class="fas fa-truck-medical"></i>
+                    <span>IMRP EMS</span>
+                </div>
+                <div class="mdt-user" id="mdtUserInfo">
+                    <span class="mdt-user-name">EMS Member</span>
+                    <span class="mdt-user-rank">Trainee EMT</span>
+                </div>
+                <nav class="mdt-nav">
+                    <button class="mdt-nav-btn active" data-page="dashboard" onclick="switchMDTPage('dashboard')">
+                        <i class="fas fa-chart-line"></i> Dashboard
+                    </button>
+                    <button class="mdt-nav-btn" data-page="calls" onclick="switchMDTPage('calls')">
+                        <i class="fas fa-phone"></i> Active Calls
+                    </button>
+                    <button class="mdt-nav-btn" data-page="dispatch" onclick="switchMDTPage('dispatch')">
+                        <i class="fas fa-tower-broadcast"></i> Dispatch
+                    </button>
+                    <button class="mdt-nav-btn" data-page="patients" onclick="switchMDTPage('patients')">
+                        <i class="fas fa-hospital-user"></i> Patient Records
+                    </button>
+                    <button class="mdt-nav-btn" data-page="insurance" onclick="switchMDTPage('insurance')">
+                        <i class="fas fa-shield-halved"></i> Insurance
+                    </button>
+                    <button class="mdt-nav-btn" data-page="staff" onclick="switchMDTPage('staff')">
+                        <i class="fas fa-users"></i> EMS Staff
+                    </button>
+                    <button class="mdt-nav-btn" data-page="logs" onclick="switchMDTPage('logs')">
+                        <i class="fas fa-clipboard-list"></i> Duty Logs
+                    </button>
+                    <button class="mdt-nav-btn" data-page="reports" onclick="switchMDTPage('reports')">
+                        <i class="fas fa-file-medical"></i> Reports
+                    </button>
+                    <button class="mdt-nav-btn" data-page="billing" onclick="switchMDTPage('billing')">
+                        <i class="fas fa-file-invoice-dollar"></i> Billing
+                    </button>
+                </nav>
+                <button class="mdt-close-btn" onclick="closeMDT()">
+                    <i class="fas fa-right-from-bracket"></i> Close MDT
+                </button>
+            </div>
+
+            <!-- Content -->
+            <div class="mdt-content">
+                <!-- Dashboard -->
+                <div class="mdt-page active" id="page-dashboard">
+                    <h1 class="page-title"><i class="fas fa-chart-line"></i> Dashboard</h1>
+                    <div class="dashboard-grid">
+                        <div class="stat-card">
+                            <div class="stat-icon blue"><i class="fas fa-user-nurse"></i></div>
+                            <div class="stat-info">
+                                <span class="stat-value" id="statOnDuty">0</span>
+                                <span class="stat-label">On Duty</span>
+                            </div>
+                        </div>
+                        <div class="stat-card">
+                            <div class="stat-icon red"><i class="fas fa-phone"></i></div>
+                            <div class="stat-info">
+                                <span class="stat-value" id="statCalls">0</span>
+                                <span class="stat-label">Active Calls</span>
+                            </div>
+                        </div>
+                        <div class="stat-card">
+                            <div class="stat-icon green"><i class="fas fa-hospital-user"></i></div>
+                            <div class="stat-info">
+                                <span class="stat-value" id="statPatients">0</span>
+                                <span class="stat-label">Total Patients</span>
+                            </div>
+                        </div>
+                        <div class="stat-card">
+                            <div class="stat-icon cyan"><i class="fas fa-kit-medical"></i></div>
+                            <div class="stat-info">
+                                <span class="stat-value" id="statTreatments">0</span>
+                                <span class="stat-label">Today's Treatments</span>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="dashboard-branding">
+                        <h2>IMMORTAL ROLEPLAY</h2>
+                        <p>Emergency Medical Services</p>
+                    </div>
+                </div>
+
+                <!-- Active Calls -->
+                <div class="mdt-page" id="page-calls">
+                    <h1 class="page-title"><i class="fas fa-phone"></i> Active Calls</h1>
+                    <div class="table-container" id="callsTable"></div>
+                </div>
+
+                <!-- Dispatch -->
+                <div class="mdt-page" id="page-dispatch">
+                    <h1 class="page-title"><i class="fas fa-tower-broadcast"></i> Dispatch</h1>
+                    <div class="dispatch-form">
+                        <p class="form-info">Active dispatch calls are shown here. Accept calls from the Active Calls tab.</p>
+                        <div class="table-container" id="dispatchTable"></div>
+                    </div>
+                </div>
+
+                <!-- Patient Records -->
+                <div class="mdt-page" id="page-patients">
+                    <h1 class="page-title"><i class="fas fa-hospital-user"></i> Patient Records</h1>
+                    <div class="search-bar">
+                        <input type="text" id="patientSearch" placeholder="Search by name or citizen ID..." onkeyup="searchPatients()">
+                        <button onclick="searchPatients()"><i class="fas fa-search"></i></button>
+                    </div>
+                    <div class="table-container" id="patientsTable"></div>
+                </div>
+
+                <!-- Insurance -->
+                <div class="mdt-page" id="page-insurance">
+                    <h1 class="page-title"><i class="fas fa-shield-halved"></i> Insurance Records</h1>
+                    <div class="table-container" id="insuranceTable"></div>
+                </div>
+
+                <!-- Staff -->
+                <div class="mdt-page" id="page-staff">
+                    <h1 class="page-title"><i class="fas fa-users"></i> EMS Staff</h1>
+                    <div class="table-container" id="staffTable"></div>
+                </div>
+
+                <!-- Duty Logs -->
+                <div class="mdt-page" id="page-logs">
+                    <h1 class="page-title"><i class="fas fa-clipboard-list"></i> Duty Logs</h1>
+                    <div class="table-container" id="logsTable"></div>
+                </div>
+
+                <!-- Reports -->
+                <div class="mdt-page" id="page-reports">
+                    <h1 class="page-title"><i class="fas fa-file-medical"></i> Reports</h1>
+                    <div class="report-actions">
+                        <button class="action-btn" onclick="showNewReport()">
+                            <i class="fas fa-plus"></i> New Report
+                        </button>
+                    </div>
+                    <div id="newReportForm" class="report-form hidden">
+                        <input type="text" id="reportPatientCid" placeholder="Patient Citizen ID">
+                        <input type="text" id="reportPatientName" placeholder="Patient Name">
+                        <input type="text" id="reportTitle" placeholder="Report Title">
+                        <textarea id="reportDescription" placeholder="Description / Notes" rows="4"></textarea>
+                        <input type="text" id="reportDiagnosis" placeholder="Diagnosis">
+                        <select id="reportOutcome">
+                            <option value="treated">Treated</option>
+                            <option value="hospitalized">Hospitalized</option>
+                            <option value="deceased">Deceased</option>
+                            <option value="released">Released</option>
+                        </select>
+                        <div class="form-actions">
+                            <button class="action-btn save" onclick="submitReport()"><i class="fas fa-save"></i> Save</button>
+                            <button class="action-btn cancel" onclick="hideNewReport()"><i class="fas fa-xmark"></i> Cancel</button>
+                        </div>
+                    </div>
+                    <div class="table-container" id="reportsTable"></div>
+                </div>
+
+                <!-- Billing -->
+                <div class="mdt-page" id="page-billing">
+                    <h1 class="page-title"><i class="fas fa-file-invoice-dollar"></i> Billing</h1>
+                    <div class="report-actions">
+                        <button class="action-btn" onclick="showNewBill()">
+                            <i class="fas fa-plus"></i> New Bill
+                        </button>
+                    </div>
+                    <div id="newBillForm" class="report-form hidden">
+                        <input type="text" id="billPatientCid" placeholder="Patient Citizen ID">
+                        <input type="text" id="billPatientName" placeholder="Patient Name">
+                        <input type="number" id="billAmount" placeholder="Amount ($)">
+                        <input type="text" id="billReason" placeholder="Reason">
+                        <div class="form-actions">
+                            <button class="action-btn save" onclick="submitBill()"><i class="fas fa-save"></i> Send Bill</button>
+                            <button class="action-btn cancel" onclick="hideNewBill()"><i class="fas fa-xmark"></i> Cancel</button>
+                        </div>
+                    </div>
+                    <div class="table-container" id="billingTable"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="script.js"></script>
+</body>
+</html>
