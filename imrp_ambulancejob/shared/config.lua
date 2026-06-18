@@ -189,7 +189,11 @@ Config.DutyLocations = {
     {
         coords = vector3(311.69, -593.36, 43.28),
         label = 'EMS Clock In/Out',
-        heading = 332.5
+        heading = 332.5,
+        npc = {
+            model = 's_m_m_paramedic_01',
+            coords = vector4(311.69, -593.36, 43.28, 152.5),
+        },
     }
 }
 
@@ -199,6 +203,58 @@ Config.DutyLocations = {
 Config.Cloakroom = {
     coords = vector3(309.52, -596.14, 43.28),
     label = 'EMS Locker Room',
+    npc = {
+        model = 's_f_y_scrubs_01',
+        coords = vector4(309.52, -596.14, 43.28, 160.0),
+    },
+    outfits = {
+        ems_male_default = {
+            label = 'EMS Uniform (Male)',
+            gender = 'male',
+            components = {
+                [3] = { drawable = 0, texture = 0 },   -- Torso
+                [4] = { drawable = 35, texture = 0 },   -- Legs
+                [6] = { drawable = 25, texture = 0 },   -- Shoes
+                [8] = { drawable = 1, texture = 0 },    -- Undershirt
+                [11] = { drawable = 250, texture = 0 }, -- Jacket
+            },
+        },
+        ems_female_default = {
+            label = 'EMS Uniform (Female)',
+            gender = 'female',
+            components = {
+                [3] = { drawable = 4, texture = 0 },    -- Torso
+                [4] = { drawable = 34, texture = 0 },   -- Legs
+                [6] = { drawable = 27, texture = 0 },   -- Shoes
+                [8] = { drawable = 0, texture = 0 },    -- Undershirt
+                [11] = { drawable = 258, texture = 0 }, -- Jacket
+            },
+        },
+        ems_surgeon = {
+            label = 'Surgeon Scrubs',
+            gender = 'any',
+            minRank = 3,
+            components = {
+                [3] = { drawable = 0, texture = 0 },
+                [4] = { drawable = 35, texture = 3 },
+                [6] = { drawable = 25, texture = 0 },
+                [8] = { drawable = 122, texture = 0 },
+                [11] = { drawable = 250, texture = 3 },
+            },
+        },
+        ems_chief = {
+            label = 'EMS Chief Uniform',
+            gender = 'any',
+            minRank = 8,
+            components = {
+                [3] = { drawable = 0, texture = 0 },
+                [4] = { drawable = 28, texture = 0 },
+                [6] = { drawable = 10, texture = 0 },
+                [8] = { drawable = 31, texture = 0 },
+                [11] = { drawable = 29, texture = 0 },
+            },
+        },
+    },
 }
 
 -----------------------------------------------------------
@@ -208,6 +264,39 @@ Config.BossMenu = {
     coords = vector3(307.21, -599.72, 43.28),
     label = 'EMS Management',
     minRank = 7,  -- Captain+
+    npc = {
+        model = 's_m_m_doctor_01',
+        coords = vector4(307.21, -599.72, 43.28, 70.0),
+    },
+}
+
+-----------------------------------------------------------
+-- Item Armory
+-----------------------------------------------------------
+Config.Armory = {
+    coords = vector3(301.07, -600.83, 43.28),
+    label = 'EMS Item Armory',
+    npc = {
+        model = 's_m_m_paramedic_01',
+        coords = vector4(301.07, -600.83, 43.28, 90.0),
+    },
+    items = {
+        { item = 'bandage', label = 'Bandage', amount = 5 },
+        { item = 'firstaid', label = 'First Aid Kit', amount = 2 },
+        { item = 'medkit', label = 'Medkit', amount = 2 },
+        { item = 'defibrillator', label = 'Defibrillator', amount = 1, minRank = 2 },
+        { item = 'painkillers', label = 'Painkillers', amount = 5 },
+        { item = 'morphine', label = 'Morphine', amount = 3, minRank = 3 },
+        { item = 'adrenaline', label = 'Adrenaline Shot', amount = 2, minRank = 2 },
+        { item = 'blood_bag', label = 'Blood Bag', amount = 2, minRank = 2 },
+        { item = 'saline', label = 'Saline IV', amount = 3 },
+        { item = 'splint', label = 'Splint', amount = 3 },
+        { item = 'antibiotics', label = 'Antibiotics', amount = 5 },
+        { item = 'surgical_kit', label = 'Surgical Kit', amount = 1, minRank = 4 },
+        { item = 'oxygen_tank', label = 'Oxygen Tank', amount = 1 },
+        { item = 'ecg_machine', label = 'ECG Machine', amount = 1, minRank = 3 },
+        { item = 'medical_bag', label = 'Medical Bag', amount = 1 },
+    },
 }
 
 -----------------------------------------------------------

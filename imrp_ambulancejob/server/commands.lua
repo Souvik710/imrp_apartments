@@ -195,3 +195,53 @@ RegisterCommand('emsresetpatient', function(source, args)
         TriggerClientEvent('ox_lib:notify', src, { title = 'IMRP EMS', description = msg, type = 'success' })
     end
 end, false)
+
+-----------------------------------------------------------
+-- Item Armory Handler
+-----------------------------------------------------------
+RegisterNetEvent('imrp_ambulancejob:server:takeArmoryItem', function(itemName, amount)
+    local src = source
+    local player = exports.qbx_core:GetPlayer(src)
+    if not player then return end
+    if player.PlayerData.job.name ~= Config.JobName then return end
+    if not player.PlayerData.job.onduty then
+        TriggerClientEvent('ox_lib:notify', src, { title = 'IMRP EMS', description = 'You must be on duty', type = 'error' })
+        return
+    end
+
+    local grade = player.PlayerData.job.grade.level
+    local armoryItem = nil
+
+    for _, item in ipairs(Config.Armory.items) do
+        if item.item == itemName then
+            armoryItem = item
+            break
+        end
+    end
+
+    if not armoryItem then
+        TriggerClientEvent('ox_lib:notify', src, { title = 'IMRP EMS', description = 'Item not found', type = 'error' })
+        return
+    end
+
+    if armoryItem.minRank and grade < armoryItem.minRank then
+        TriggerClientEvent('ox_lib:notify', src, { title = 'IMRP EMS', description = 'Insufficient rank', type = 'error' })
+        return
+    end
+
+    local qty = amount or armoryItem.amount
+    local success = exports.ox_inventory:AddItem(src, itemName, qty)
+
+    if success then
+        TriggerClientEvent('ox_lib:notify', src, {
+            title = 'IMRP EMS',
+            description = string.format('Received %dx %s', qty, armoryItem.label),
+            type = 'success',
+        })
+
+        local name = player.PlayerData.charinfo.firstname .. ' ' .. player.PlayerData.charinfo.lastname
+        LogAction(player.PlayerData.citizenid, name, 'armory', string.format('Took %dx %s', qty, armoryItem.label))
+    else
+        TriggerClientEvent('ox_lib:notify', src, { title = 'IMRP EMS', description = 'Inventory full', type = 'error' })
+    end
+end)

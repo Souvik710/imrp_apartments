@@ -62,6 +62,10 @@ EMSVehicles.Garages = {
             color = 1,
             scale = 0.6,
         },
+        npc = {
+            model = 's_m_y_xmech_02',
+            coords = vector4(294.41, -587.54, 43.18, 340.0),
+        },
     },
     {
         label = 'Pillbox Helipad',
@@ -73,6 +77,10 @@ EMSVehicles.Garages = {
             sprite = 360,
             color = 1,
             scale = 0.6,
+        },
+        npc = {
+            model = 's_m_y_xmech_02',
+            coords = vector4(351.69, -587.56, 74.16, 340.0),
         },
     },
 }

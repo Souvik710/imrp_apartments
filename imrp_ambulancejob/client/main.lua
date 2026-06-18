@@ -54,6 +54,9 @@ function SetupEMSJob()
     SetupDutyPoints()
     SetupHospitalBlips()
     SetupHospitalTargets()
+    SetupCloakroom()
+    SetupBossMenuNPC()
+    SetupArmory()
 end
 
 function CleanupEMSJob()
@@ -67,6 +70,11 @@ end
 -----------------------------------------------------------
 function SetupDutyPoints()
     for i, duty in ipairs(Config.DutyLocations) do
+        -- Spawn NPC at duty point
+        if duty.npc then
+            SpawnNPC(duty.npc)
+        end
+
         exports.ox_target:addSphereZone({
             coords = duty.coords,
             radius = 1.5,
@@ -398,6 +406,194 @@ RegisterNetEvent('imrp_ambulancejob:client:showInsurance', function(data)
         EMSUtils.Notify('You do not have active insurance', 'info')
     end
 end)
+
+-----------------------------------------------------------
+-- Cloakroom / Job Clothing
+-----------------------------------------------------------
+function SetupCloakroom()
+    if not Config.Cloakroom then return end
+
+    -- Spawn NPC
+    if Config.Cloakroom.npc then
+        SpawnNPC(Config.Cloakroom.npc)
+    end
+
+    exports.ox_target:addSphereZone({
+        coords = Config.Cloakroom.coords,
+        radius = 1.5,
+        options = {
+            {
+                name = 'ems_cloakroom',
+                label = Config.Cloakroom.label,
+                icon = 'fa-solid fa-shirt',
+                onSelect = function()
+                    OpenCloakroom()
+                end,
+                canInteract = function()
+                    return EMSUtils.IsEMS()
+                end,
+            },
+        },
+    })
+end
+
+function OpenCloakroom()
+    local playerData = exports.qbx_core:GetPlayerData()
+    if not playerData then return end
+
+    local gender = playerData.charinfo.gender == 0 and 'male' or 'female'
+    local grade = EMSUtils.GetRank()
+    local options = {}
+
+    -- EMS outfits
+    for id, outfit in pairs(Config.Cloakroom.outfits) do
+        local genderMatch = outfit.gender == 'any' or outfit.gender == gender
+        local rankMatch = not outfit.minRank or grade >= outfit.minRank
+
+        if genderMatch then
+            table.insert(options, {
+                title = outfit.label,
+                description = rankMatch
+                    and 'Click to equip'
+                    or 'Requires higher rank',
+                icon = 'fa-solid fa-shirt',
+                disabled = not rankMatch,
+                onSelect = function()
+                    ApplyOutfit(outfit)
+                end,
+            })
+        end
+    end
+
+    -- Civilian clothes option
+    table.insert(options, {
+        title = 'Civilian Clothes',
+        description = 'Change back to civilian outfit',
+        icon = 'fa-solid fa-user',
+        onSelect = function()
+            RestoreCivilianClothes()
+        end,
+    })
+
+    lib.registerContext({
+        id = 'ems_cloakroom',
+        title = Config.Cloakroom.label,
+        options = options,
+    })
+    lib.showContext('ems_cloakroom')
+end
+
+local savedOutfit = nil
+
+function ApplyOutfit(outfit)
+    local ped = PlayerPedId()
+
+    -- Save current outfit before changing
+    if not savedOutfit then
+        savedOutfit = {}
+        for compId = 0, 11 do
+            savedOutfit[compId] = {
+                drawable = GetPedDrawableVariation(ped, compId),
+                texture = GetPedTextureVariation(ped, compId),
+            }
+        end
+    end
+
+    -- Apply EMS outfit
+    if outfit.components then
+        for componentId, data in pairs(outfit.components) do
+            SetPedComponentVariation(ped, componentId, data.drawable, data.texture, 0)
+        end
+    end
+
+    EMSUtils.Notify('Changed into: ' .. outfit.label, 'success')
+end
+
+function RestoreCivilianClothes()
+    if not savedOutfit then
+        EMSUtils.Notify('No civilian outfit saved', 'error')
+        return
+    end
+
+    local ped = PlayerPedId()
+    for componentId, data in pairs(savedOutfit) do
+        SetPedComponentVariation(ped, componentId, data.drawable, data.texture, 0)
+    end
+
+    savedOutfit = nil
+    EMSUtils.Notify('Changed into civilian clothes', 'success')
+end
+
+-----------------------------------------------------------
+-- Boss Menu NPC
+-----------------------------------------------------------
+function SetupBossMenuNPC()
+    if Config.BossMenu.npc then
+        SpawnNPC(Config.BossMenu.npc)
+    end
+end
+
+-----------------------------------------------------------
+-- Item Armory
+-----------------------------------------------------------
+function SetupArmory()
+    if not Config.Armory then return end
+
+    -- Spawn NPC
+    if Config.Armory.npc then
+        SpawnNPC(Config.Armory.npc)
+    end
+
+    exports.ox_target:addSphereZone({
+        coords = Config.Armory.coords,
+        radius = 1.5,
+        options = {
+            {
+                name = 'ems_armory',
+                label = Config.Armory.label,
+                icon = 'fa-solid fa-kit-medical',
+                onSelect = function()
+                    OpenArmory()
+                end,
+                canInteract = function()
+                    return EMSUtils.IsOnDuty()
+                end,
+            },
+        },
+    })
+end
+
+function OpenArmory()
+    if not EMSUtils.IsOnDuty() then
+        EMSUtils.Notify('You must be on duty', 'error')
+        return
+    end
+
+    local grade = EMSUtils.GetRank()
+    local options = {}
+
+    for _, armoryItem in ipairs(Config.Armory.items) do
+        local rankOk = not armoryItem.minRank or grade >= armoryItem.minRank
+        table.insert(options, {
+            title = armoryItem.label,
+            description = rankOk
+                and string.format('Take %dx', armoryItem.amount)
+                or 'Requires higher rank',
+            icon = 'fa-solid fa-pills',
+            disabled = not rankOk,
+            onSelect = function()
+                TriggerServerEvent('imrp_ambulancejob:server:takeArmoryItem', armoryItem.item, armoryItem.amount)
+            end,
+        })
+    end
+
+    lib.registerContext({
+        id = 'ems_armory',
+        title = Config.Armory.label,
+        options = options,
+    })
+    lib.showContext('ems_armory')
+end
 
 -----------------------------------------------------------
 -- Exports for other resources

@@ -11,6 +11,11 @@ local spawnedVehicles = {}
 CreateThread(function()
     Wait(3000)
     for i, garage in ipairs(EMSVehicles.Garages) do
+        -- Spawn NPC at garage
+        if garage.npc then
+            SpawnNPC(garage.npc)
+        end
+
         exports.ox_target:addSphereZone({
             coords = garage.coords,
             radius = 3.0,

@@ -12,6 +12,10 @@ local StoragePoints = {
         label = 'EMS Main Storage',
         coords = vector3(303.07, -598.22, 43.28),
         permission = 'storage_main',
+        npc = {
+            model = 's_m_m_paramedic_01',
+            coords = vector4(303.07, -598.22, 43.28, 250.0),
+        },
         stash = {
             id = 'ems_main_storage',
             label = 'EMS Main Storage',
@@ -24,6 +28,10 @@ local StoragePoints = {
         label = 'Pharmacy Storage',
         coords = vector3(304.64, -601.03, 43.28),
         permission = 'storage_pharmacy',
+        npc = {
+            model = 's_f_y_scrubs_01',
+            coords = vector4(304.64, -601.03, 43.28, 250.0),
+        },
         stash = {
             id = 'ems_pharmacy_storage',
             label = 'Pharmacy Storage',
@@ -36,6 +44,10 @@ local StoragePoints = {
         label = 'Evidence Storage',
         coords = vector3(300.15, -597.72, 43.28),
         permission = 'storage_evidence',
+        npc = {
+            model = 's_m_m_paramedic_01',
+            coords = vector4(300.15, -597.72, 43.28, 90.0),
+        },
         stash = {
             id = 'ems_evidence_storage',
             label = 'Evidence Storage',
@@ -52,6 +64,11 @@ CreateThread(function()
     Wait(3000)
 
     for _, storage in ipairs(StoragePoints) do
+        -- Spawn NPC at storage point
+        if storage.npc then
+            SpawnNPC(storage.npc)
+        end
+
         exports.ox_target:addSphereZone({
             coords = storage.coords,
             radius = 1.5,
@@ -102,10 +119,20 @@ local PersonalLocker = {
     coords = vector3(310.12, -594.35, 43.28),
     label = 'Personal Locker',
     permission = 'storage_personal',
+    npc = {
+        model = 's_f_y_scrubs_01',
+        coords = vector4(310.12, -594.35, 43.28, 180.0),
+    },
 }
 
 CreateThread(function()
     Wait(3000)
+
+    -- Spawn NPC at personal locker
+    if PersonalLocker.npc then
+        SpawnNPC(PersonalLocker.npc)
+    end
+
     exports.ox_target:addSphereZone({
         coords = PersonalLocker.coords,
         radius = 1.5,
