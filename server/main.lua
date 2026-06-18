@@ -17,7 +17,7 @@ local utils = require('shared.utils')
 
 -- Initialize database on startup
 CreateThread(function()
-    MySQL.Async.execute([[
+    local ok, err = pcall(MySQL.Async.execute, [[
         CREATE TABLE IF NOT EXISTS player_apartments (
             id INT AUTO_INCREMENT PRIMARY KEY,
             citizenid VARCHAR(50) NOT NULL,
@@ -30,6 +30,9 @@ CreateThread(function()
             INDEX idx_expire_date (expire_date)
         )
     ]])
+    if not ok then
+        print(string.format('^1[imrp_apartments] Failed to create database table: %s^0', tostring(err)))
+    end
 end)
 
 -- Get player function
@@ -52,30 +55,55 @@ end
 
 -- Safe database query wrapper
 local function SafeFetchAll(query, params)
-    local results = MySQL.Async.fetchAll(query, params or {})
+    local ok, results = pcall(MySQL.Async.fetchAll, query, params or {})
+    if not ok then
+        print(string.format('^1[imrp_apartments] DB fetchAll error: %s^0', tostring(results)))
+        return {}
+    end
     return results or {}
 end
 
 local function SafeFetchSingle(query, params)
-    local result = MySQL.Async.fetchSingle(query, params or {})
-    return result or nil
+    local ok, result = pcall(MySQL.Async.fetchSingle, query, params or {})
+    if not ok then
+        print(string.format('^1[imrp_apartments] DB fetchSingle error: %s^0', tostring(result)))
+        return nil
+    end
+    return result
+end
+
+local function SafeExecute(query, params)
+    local ok, result = pcall(MySQL.Async.execute, query, params or {})
+    if not ok then
+        print(string.format('^1[imrp_apartments] DB execute error: %s^0', tostring(result)))
+        return nil
+    end
+    return result
 end
 
 -- Check ownership
 lib.callback.register('imrp_apartments:CheckOwnership', function(source, apartment_id)
-    local player = GetPlayer(source)
-    if not player then 
-        print(string.format('[imrp_apartments] Player not found for source: %s', source))
-        return false 
+    if not apartment_id then
+        print('[imrp_apartments] CheckOwnership called with nil apartment_id')
+        return false
     end
-    
+
+    local player = GetPlayer(source)
+    if not player then
+        print(string.format('[imrp_apartments] Player not found for source: %s', source))
+        return false
+    end
+
     local citizenid = player.PlayerData.citizenid
-    if not citizenid then return false end
-    
-    local result = SafeFetchSingle('SELECT * FROM player_apartments WHERE citizenid = ? AND apartment = ? AND expire_date > NOW()', {
+    if not citizenid then
+        print(string.format('[imrp_apartments] No citizenid for source: %s', source))
+        return false
+    end
+
+    local result = SafeFetchSingle('SELECT id FROM player_apartments WHERE citizenid = ? AND apartment = ? AND expire_date > NOW()', {
         citizenid, apartment_id
     })
-    
+
     return result ~= nil
 end)
 
@@ -96,79 +124,96 @@ lib.callback.register('imrp_apartments:PurchaseApartment', function(source, apar
         return false, 'Citizen ID not found' 
     end
     
+    -- Check max apartments limit
+    local owned_count = SafeFetchAll('SELECT id FROM player_apartments WHERE citizenid = ? AND expire_date > NOW()', {citizenid})
+    if #owned_count >= (Config.MaxApartmentsPerPlayer or 5) then
+        return false, 'You have reached the maximum number of apartments'
+    end
+
     -- Check if player already owns this apartment
-    local existing = SafeFetchSingle('SELECT * FROM player_apartments WHERE citizenid = ? AND apartment = ?', {
+    local existing = SafeFetchSingle('SELECT id, expire_date FROM player_apartments WHERE citizenid = ? AND apartment = ?', {
         citizenid, apartment_id
     })
-    
+
     if existing then
-        if existing.expire_date and existing.expire_date > os.time() then
+        if existing.expire_date and os.time() < os.time(ParseMySQLTimestamp(existing.expire_date)) then
             return false, 'You already own this apartment'
         else
-            MySQL.Async.execute('DELETE FROM player_apartments WHERE id = ?', {existing.id})
+            local deleted = SafeExecute('DELETE FROM player_apartments WHERE id = ?', {existing.id})
+            if not deleted then
+                return false, 'Failed to remove expired apartment record'
+            end
         end
     end
-    
+
     -- Check if player has enough money
     local balance = player.Functions.GetMoney('bank')
     if balance < apartment.price then
         return false, string.format('Insufficient funds. Required: $%s', FormatNumber(apartment.price))
     end
-    
+
     -- Process payment
     local paymentSuccess = player.Functions.RemoveMoney('bank', apartment.price)
     if not paymentSuccess then
         return false, 'Payment failed'
     end
-    
+
     -- Generate room ID
     local roomid = utils.GenerateRoomID(citizenid, apartment_id)
-    
+
     -- Calculate expire date
     local expire_date = os.time() + (apartment.rental_days * 86400)
-    
+
     -- Save to database
-    local success = MySQL.Async.execute([[
-        INSERT INTO player_apartments (citizenid, apartment, roomid, expire_date) 
+    local success = SafeExecute([[
+        INSERT INTO player_apartments (citizenid, apartment, roomid, expire_date)
         VALUES (?, ?, ?, FROM_UNIXTIME(?))
     ]], {citizenid, apartment_id, roomid, expire_date})
-    
-    if success then
-        -- Create stash
-        local stash_id = 'apartment_stash_' .. roomid
-        exports.ox_inventory:RegisterStash(stash_id, apartment.label .. ' Stash', apartment.stash_slots, apartment.stash_weight)
-        
-        print(string.format('[imrp_apartments] Player %s purchased apartment %s for $%s', player.PlayerData.name or 'Unknown', apartment_id, apartment.price))
-        
-        return true, 'Apartment purchased successfully!'
-    else
-        -- Refund money if database insert fails
+
+    if not success then
         player.Functions.AddMoney('bank', apartment.price)
+        print(string.format('^1[imrp_apartments] DB insert failed for %s purchasing %s, refunded $%s^0', citizenid, apartment_id, apartment.price))
         return false, 'Database error occurred'
     end
+
+    -- Create stash
+    local stashOk, stashErr = pcall(exports.ox_inventory.RegisterStash, exports.ox_inventory,
+        'apartment_stash_' .. roomid, apartment.label .. ' Stash', apartment.stash_slots, apartment.stash_weight)
+    if not stashOk then
+        print(string.format('^3[imrp_apartments] Warning: Failed to register stash for %s: %s^0', roomid, tostring(stashErr)))
+    end
+
+    print(string.format('[imrp_apartments] Player %s purchased apartment %s for $%s', player.PlayerData.name or 'Unknown', apartment_id, apartment.price))
+
+    return true, 'Apartment purchased successfully!'
 end)
 
 -- Open stash
 lib.callback.register('imrp_apartments:OpenStash', function(source, apartment_id)
     local player = GetPlayer(source)
-    if not player then 
-        return false 
+    if not player then
+        return false, 'Player not found'
     end
-    
+
     local citizenid = player.PlayerData.citizenid
-    if not citizenid then return false end
-    
-    -- Verify ownership
-    local apartment_data = SafeFetchSingle('SELECT * FROM player_apartments WHERE citizenid = ? AND apartment = ? AND expire_date > NOW()', {
+    if not citizenid then return false, 'Citizen ID not found' end
+
+    if not apartment_id then return false, 'Invalid apartment' end
+
+    local apartment_data = SafeFetchSingle('SELECT roomid FROM player_apartments WHERE citizenid = ? AND apartment = ? AND expire_date > NOW()', {
         citizenid, apartment_id
     })
-    
+
     if not apartment_data then
-        return false
+        return false, 'You do not own this apartment or it has expired'
     end
-    
+
     local stash_id = 'apartment_stash_' .. apartment_data.roomid
-    exports.ox_inventory:OpenInventory(source, stash_id)
+    local ok, err = pcall(exports.ox_inventory.OpenInventory, exports.ox_inventory, source, stash_id)
+    if not ok then
+        print(string.format('^1[imrp_apartments] Failed to open stash %s: %s^0', stash_id, tostring(err)))
+        return false, 'Failed to open stash'
+    end
     return true
 end)
 
@@ -212,17 +257,17 @@ lib.callback.register('imrp_apartments:RenewApartment', function(source, apartme
     
     -- Update expiration date
     local new_expire_date = os.time() + (apartment.rental_days * 86400)
-    local success = MySQL.Async.execute('UPDATE player_apartments SET expire_date = FROM_UNIXTIME(?) WHERE id = ?', {
+    local success = SafeExecute('UPDATE player_apartments SET expire_date = FROM_UNIXTIME(?) WHERE id = ?', {
         new_expire_date, apartment_data.id
     })
-    
-    if success then
-        return true, 'Apartment renewed successfully!'
-    else
-        -- Refund money if update fails
+
+    if not success then
         player.Functions.AddMoney('bank', apartment.rental_price)
+        print(string.format('^1[imrp_apartments] DB update failed for renew, refunded $%s to %s^0', apartment.rental_price, citizenid))
         return false, 'Database error occurred'
     end
+
+    return true, 'Apartment renewed successfully!'
 end)
 
 -- Get my apartments
@@ -348,19 +393,25 @@ RegisterCommand('apartmentremove', function(source, args, rawCommand)
     end
     
     local citizenid = args[1]
-    local success = MySQL.Async.execute('DELETE FROM player_apartments WHERE citizenid = ?', {citizenid})
-    
-    if success then
+    local affected = SafeExecute('DELETE FROM player_apartments WHERE citizenid = ?', {citizenid})
+
+    if not affected then
         TriggerClientEvent('ox_lib:notify', source, {
-            title = 'Success',
-            description = 'Apartment removed successfully',
-            type = 'success'
+            title = 'Error',
+            description = 'Database error while removing apartments',
+            type = 'error'
+        })
+    elseif affected == 0 then
+        TriggerClientEvent('ox_lib:notify', source, {
+            title = 'Info',
+            description = 'No apartments found for that citizen ID',
+            type = 'info'
         })
     else
         TriggerClientEvent('ox_lib:notify', source, {
-            title = 'Error',
-            description = 'Failed to remove apartment',
-            type = 'error'
+            title = 'Success',
+            description = string.format('Removed %d apartment(s) successfully', affected),
+            type = 'success'
         })
     end
 end, true)
@@ -422,21 +473,21 @@ RegisterCommand('apartmentreset', function(source, args, rawCommand)
         return
     end
     
-    MySQL.Async.execute('TRUNCATE TABLE player_apartments', function(success)
-        if success then
-            TriggerClientEvent('ox_lib:notify', source, {
-                title = 'Success',
-                description = 'All apartments have been reset',
-                type = 'success'
-            })
-        else
-            TriggerClientEvent('ox_lib:notify', source, {
-                title = 'Error',
-                description = 'Failed to reset apartments',
-                type = 'error'
-            })
-        end
-    end)
+    local result = SafeExecute('TRUNCATE TABLE player_apartments', {})
+    if result ~= nil then
+        TriggerClientEvent('ox_lib:notify', source, {
+            title = 'Success',
+            description = 'All apartments have been reset',
+            type = 'success'
+        })
+        print(string.format('[imrp_apartments] Apartments reset by admin (source: %s)', source))
+    else
+        TriggerClientEvent('ox_lib:notify', source, {
+            title = 'Error',
+            description = 'Failed to reset apartments',
+            type = 'error'
+        })
+    end
 end, true)
 
 -- Helper function to give apartment
@@ -462,29 +513,36 @@ function GiveApartmentToPlayer(player_id, apartment_id)
     })
     
     if existing then
-        if existing.expire_date and existing.expire_date > os.time() then
+        if existing.expire_date and os.time() < os.time(ParseMySQLTimestamp(existing.expire_date)) then
             return false, 'Player already owns this apartment'
         else
-            MySQL.Async.execute('DELETE FROM player_apartments WHERE id = ?', {existing.id})
+            local deleted = SafeExecute('DELETE FROM player_apartments WHERE id = ?', {existing.id})
+            if not deleted then
+                return false, 'Failed to remove expired apartment record'
+            end
         end
     end
-    
+
     local roomid = utils.GenerateRoomID(citizenid, apartment_id)
     local expire_date = os.time() + (apartment.rental_days * 86400)
-    
-    local success = MySQL.Async.execute([[
-        INSERT INTO player_apartments (citizenid, apartment, roomid, expire_date) 
+
+    local success = SafeExecute([[
+        INSERT INTO player_apartments (citizenid, apartment, roomid, expire_date)
         VALUES (?, ?, ?, FROM_UNIXTIME(?))
     ]], {citizenid, apartment_id, roomid, expire_date})
-    
-    if success then
-        -- Create stash
-        local stash_id = 'apartment_stash_' .. roomid
-        exports.ox_inventory:RegisterStash(stash_id, apartment.label .. ' Stash', apartment.stash_slots, apartment.stash_weight)
-        return true, 'Success'
-    else
+
+    if not success then
         return false, 'Database error'
     end
+
+    local stash_id = 'apartment_stash_' .. roomid
+    local stashOk, stashErr = pcall(exports.ox_inventory.RegisterStash, exports.ox_inventory,
+        stash_id, apartment.label .. ' Stash', apartment.stash_slots, apartment.stash_weight)
+    if not stashOk then
+        print(string.format('^3[imrp_apartments] Warning: Failed to register stash for %s: %s^0', roomid, tostring(stashErr)))
+    end
+
+    return true, 'Success'
 end
 
 -- Permission check
@@ -515,8 +573,18 @@ function HasPermission(source, permissions)
     return false
 end
 
+-- Parse MySQL TIMESTAMP string (e.g. "2025-06-25 12:00:00") into an os.time()-compatible table
+function ParseMySQLTimestamp(ts)
+    if type(ts) == 'number' then return ts end
+    if type(ts) ~= 'string' then return 0 end
+    local y, m, d, h, mi, s = ts:match('(%d+)-(%d+)-(%d+)%s+(%d+):(%d+):(%d+)')
+    if not y then return 0 end
+    return {year = tonumber(y), month = tonumber(m), day = tonumber(d), hour = tonumber(h), min = tonumber(mi), sec = tonumber(s)}
+end
+
 -- Format number helper
 function FormatNumber(number)
+    if type(number) ~= 'number' then return '0' end
     return string.format("%.0f", number):reverse():gsub("%d%d%d", "%1,"):reverse():gsub("^,", "")
 end
 
@@ -524,26 +592,31 @@ end
 CreateThread(function()
     while true do
         Wait(Config.UpdateInterval or 60000)
-        
-        local expired = SafeFetchAll('SELECT * FROM player_apartments WHERE expire_date < NOW()', {})
-        
+
+        local expired = SafeFetchAll('SELECT id, citizenid, apartment FROM player_apartments WHERE expire_date < NOW()', {})
+
         if expired and #expired > 0 then
+            local removed = 0
             for _, data in ipairs(expired) do
-                -- Delete expired apartment
-                MySQL.Async.execute('DELETE FROM player_apartments WHERE id = ?', {data.id})
-                
-                -- Notify player if online
-                local player = GetPlayerByCitizenId(data.citizenid)
-                if player then
-                    TriggerClientEvent('ox_lib:notify', player.PlayerData.source, {
-                        title = 'Apartment Expired',
-                        description = 'Your apartment has expired. Please renew to regain access.',
-                        type = 'error'
-                    })
+                local deleted = SafeExecute('DELETE FROM player_apartments WHERE id = ?', {data.id})
+                if deleted and deleted > 0 then
+                    removed = removed + 1
+                    local player = GetPlayerByCitizenId(data.citizenid)
+                    if player then
+                        TriggerClientEvent('ox_lib:notify', player.PlayerData.source, {
+                            title = 'Apartment Expired',
+                            description = 'Your apartment has expired. Please renew to regain access.',
+                            type = 'error'
+                        })
+                    end
+                else
+                    print(string.format('^3[imrp_apartments] Warning: Failed to delete expired apartment id=%s^0', data.id))
                 end
             end
-            
-            print(string.format('[imrp_apartments] Removed %s expired apartments', #expired))
+
+            if removed > 0 then
+                print(string.format('[imrp_apartments] Removed %d expired apartment(s)', removed))
+            end
         end
     end
 end)

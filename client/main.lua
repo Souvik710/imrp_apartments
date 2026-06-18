@@ -1,5 +1,6 @@
-local QBCore = exports['qb-core']:GetCoreObject()  -- Changed from qbx_core to qb-core
+local QBCore = exports['qb-core']:GetCoreObject()
 local PlayerData = {}
+local insideApartment = nil
 
 -- Initialize player data
 RegisterNetEvent('QBCore:Client:OnPlayerLoaded', function()
@@ -43,8 +44,16 @@ function SetupApartmentNPC()
     local npc = Config.NPC
     local model = npc.model
     
-    lib.requestModel(model, 1000)
+    if not lib.requestModel(model, 5000) then
+        print(string.format('[imrp_apartments] Failed to load NPC model: %s', model))
+        return
+    end
+
     local npc_ped = CreatePed(4, model, npc.coords.x, npc.coords.y, npc.coords.z, npc.coords.w, false, true)
+    if not npc_ped or npc_ped == 0 then
+        print('[imrp_apartments] Failed to create NPC ped')
+        return
+    end
     SetEntityInvincible(npc_ped, true)
     SetBlockingOfNonTemporaryEvents(npc_ped, true)
     FreezeEntityPosition(npc_ped, true)
@@ -77,30 +86,26 @@ function EnterApartment(apartment_id)
         lib.notify({ title = 'Error', description = 'Invalid apartment ID', type = 'error' })
         return
     end
-    
+
     local apartment = Config.Apartments[apartment_id]
     if not apartment then
         lib.notify({ title = 'Error', description = 'Apartment not found', type = 'error' })
         return
     end
-    
-    -- Check ownership
-    lib.callback.await('imrp_apartments:CheckOwnership', false, function(owned)
-        if not owned then
-            lib.notify({ title = 'Access Denied', description = 'You do not own this apartment', type = 'error' })
-            return
-        end
-        
-        -- Teleport to interior
-        local interior_coords = apartment.location.interior
-        SetEntityCoords(PlayerPedId(), interior_coords.x, interior_coords.y, interior_coords.z, false, false, false, false)
-        
-        -- Setup interior interactions
-        SetupInteriorInteractions(apartment_id, apartment)
-        
-        -- Show notification
-        lib.notify({ title = 'Apartment', description = 'Welcome to your apartment!', type = 'success' })
-    end, apartment_id)
+
+    local owned = lib.callback.await('imrp_apartments:CheckOwnership', false, apartment_id)
+    if not owned then
+        lib.notify({ title = 'Access Denied', description = 'You do not own this apartment', type = 'error' })
+        return
+    end
+
+    local interior_coords = apartment.location.interior
+    SetEntityCoords(PlayerPedId(), interior_coords.x, interior_coords.y, interior_coords.z, false, false, false, false)
+
+    insideApartment = apartment_id
+    SetupInteriorInteractions(apartment_id, apartment)
+
+    lib.notify({ title = 'Apartment', description = 'Welcome to your apartment!', type = 'success' })
 end
 
 -- Setup interior interactions
@@ -167,36 +172,45 @@ end
 
 -- Open apartment stash
 function OpenApartmentStash(apartment_id)
-    lib.callback.await('imrp_apartments:OpenStash', false, function(success)
-        if not success then
-            lib.notify({ title = 'Error', description = 'Failed to open stash', type = 'error' })
-        end
-    end, apartment_id)
+    local success, reason = lib.callback.await('imrp_apartments:OpenStash', false, apartment_id)
+    if not success then
+        lib.notify({ title = 'Error', description = reason or 'Failed to open stash', type = 'error' })
+    end
 end
 
 -- Open wardrobe
 function OpenWardrobe(apartment_id)
-    if Config.AppearanceSystem == 'illenium-appearance' then
-        exports['illenium-appearance']:OpenWardrobe()
-    elseif Config.AppearanceSystem == 'fivem-appearance' then
-        exports['fivem-appearance']:OpenWardrobe()
-    else
+    local system = Config.AppearanceSystem
+    if not system or (system ~= 'illenium-appearance' and system ~= 'fivem-appearance') then
         lib.notify({ title = 'Error', description = 'Appearance system not configured', type = 'error' })
+        return
+    end
+
+    local ok, err = pcall(function()
+        exports[system]:OpenWardrobe()
+    end)
+    if not ok then
+        print(string.format('[imrp_apartments] Wardrobe error (%s): %s', system, tostring(err)))
+        lib.notify({ title = 'Error', description = 'Failed to open wardrobe', type = 'error' })
     end
 end
 
 -- Exit apartment
 function ExitApartment(apartment_id, apartment)
+    if not apartment or not apartment.location or not apartment.location.exit then
+        lib.notify({ title = 'Error', description = 'Exit location not configured', type = 'error' })
+        return
+    end
+
     local exit_coords = apartment.location.exit
-    
-    -- Clean up interactions
-    exports.ox_target:removeZone('apartment_stash_' .. apartment_id)
-    exports.ox_target:removeZone('apartment_wardrobe_' .. apartment_id)
-    exports.ox_target:removeZone('apartment_exit_' .. apartment_id)
-    
-    -- Teleport to exit
+
+    pcall(exports.ox_target.removeZone, exports.ox_target, 'apartment_stash_' .. apartment_id)
+    pcall(exports.ox_target.removeZone, exports.ox_target, 'apartment_wardrobe_' .. apartment_id)
+    pcall(exports.ox_target.removeZone, exports.ox_target, 'apartment_exit_' .. apartment_id)
+
     SetEntityCoords(PlayerPedId(), exit_coords.x, exit_coords.y, exit_coords.z, false, false, false, false)
-    
+
+    insideApartment = nil
     lib.notify({ title = 'Apartment', description = 'You have left your apartment', type = 'info' })
 end
 
@@ -264,35 +278,39 @@ end
 
 -- Show my apartments
 function ShowMyApartments()
-    lib.callback.await('imrp_apartments:GetMyApartments', false, function(apartments)
-        if not apartments or #apartments == 0 then
-            lib.notify({ title = 'Info', description = 'You don\'t own any apartments', type = 'info' })
-            return
+    local apartments = lib.callback.await('imrp_apartments:GetMyApartments', false)
+    if not apartments or #apartments == 0 then
+        lib.notify({ title = 'Info', description = 'You don\'t own any apartments', type = 'info' })
+        return
+    end
+
+    local options = {}
+    for _, apartment_data in ipairs(apartments) do
+        local apartment = Config.Apartments[apartment_data.apartment]
+        if apartment then
+            local days_remaining = GetDaysRemaining(apartment_data.expire_date)
+            options[#options + 1] = {
+                title = apartment.label,
+                description = string.format('Days remaining: %s', days_remaining),
+                icon = 'home',
+                onSelect = function()
+                    ShowApartmentOptions(apartment_data.apartment)
+                end
+            }
         end
-        
-        local options = {}
-        for _, apartment_data in ipairs(apartments) do
-            local apartment = Config.Apartments[apartment_data.apartment]
-            if apartment then
-                local days_remaining = GetDaysRemaining(apartment_data.expire_date)
-                options[#options + 1] = {
-                    title = apartment.label,
-                    description = string.format('Days remaining: %s', days_remaining),
-                    icon = 'home',
-                    onSelect = function()
-                        ShowApartmentOptions(apartment_data.apartment)
-                    end
-                }
-            end
-        end
-        
-        lib.registerContext({
-            id = 'my_apartments',
-            title = 'My Apartments',
-            options = options
-        })
-        lib.showContext('my_apartments')
-    end)
+    end
+
+    if #options == 0 then
+        lib.notify({ title = 'Info', description = 'No valid apartment configurations found', type = 'info' })
+        return
+    end
+
+    lib.registerContext({
+        id = 'my_apartments',
+        title = 'My Apartments',
+        options = options
+    })
+    lib.showContext('my_apartments')
 end
 
 -- Show apartment options
@@ -331,28 +349,32 @@ end
 
 -- Show apartment info
 function ShowApartmentInfo(apartment_id)
-    lib.callback.await('imrp_apartments:GetApartmentInfo', false, function(info)
-        if not info then
-            lib.notify({ title = 'Error', description = 'Could not get apartment info', type = 'error' })
-            return
-        end
-        
-        local apartment = Config.Apartments[apartment_id]
-        local days_remaining = GetDaysRemaining(info.expire_date)
-        
-        lib.notify({ 
-            title = apartment.label,
-            description = string.format(
-                'Price: $%s\nRent: $%s/week\nDays Remaining: %s\nPurchase Date: %s',
-                FormatNumber(apartment.price),
-                FormatNumber(apartment.rental_price),
-                days_remaining,
-                os.date('%Y-%m-%d', info.purchase_date)
-            ),
-            type = 'info',
-            duration = 15000
-        })
-    end, apartment_id)
+    local info = lib.callback.await('imrp_apartments:GetApartmentInfo', false, apartment_id)
+    if not info then
+        lib.notify({ title = 'Error', description = 'Could not get apartment info', type = 'error' })
+        return
+    end
+
+    local apartment = Config.Apartments[apartment_id]
+    if not apartment then
+        lib.notify({ title = 'Error', description = 'Apartment configuration not found', type = 'error' })
+        return
+    end
+
+    local days_remaining = GetDaysRemaining(info.expire_date)
+
+    lib.notify({
+        title = apartment.label,
+        description = string.format(
+            'Price: $%s\nRent: $%s/week\nDays Remaining: %s\nPurchase Date: %s',
+            FormatNumber(apartment.price),
+            FormatNumber(apartment.rental_price),
+            days_remaining,
+            os.date('%Y-%m-%d', info.purchase_date)
+        ),
+        type = 'info',
+        duration = 15000
+    })
 end
 
 -- Purchase apartment
@@ -362,25 +384,23 @@ function PurchaseApartment(apartment_id)
         lib.notify({ title = 'Error', description = 'Apartment not found', type = 'error' })
         return
     end
-    
-    lib.callback.await('imrp_apartments:PurchaseApartment', false, function(success, message)
-        if success then
-            lib.notify({ title = 'Success', description = message or 'Apartment purchased successfully!', type = 'success' })
-        else
-            lib.notify({ title = 'Error', description = message or 'Failed to purchase apartment', type = 'error' })
-        end
-    end, apartment_id)
+
+    local success, message = lib.callback.await('imrp_apartments:PurchaseApartment', false, apartment_id)
+    if success then
+        lib.notify({ title = 'Success', description = message or 'Apartment purchased successfully!', type = 'success' })
+    else
+        lib.notify({ title = 'Error', description = message or 'Failed to purchase apartment', type = 'error' })
+    end
 end
 
 -- Renew apartment
 function RenewApartment(apartment_id)
-    lib.callback.await('imrp_apartments:RenewApartment', false, function(success, message)
-        if success then
-            lib.notify({ title = 'Success', description = message or 'Apartment renewed successfully!', type = 'success' })
-        else
-            lib.notify({ title = 'Error', description = message or 'Failed to renew apartment', type = 'error' })
-        end
-    end, apartment_id)
+    local success, message = lib.callback.await('imrp_apartments:RenewApartment', false, apartment_id)
+    if success then
+        lib.notify({ title = 'Success', description = message or 'Apartment renewed successfully!', type = 'success' })
+    else
+        lib.notify({ title = 'Error', description = message or 'Failed to renew apartment', type = 'error' })
+    end
 end
 
 -- Show rent information
